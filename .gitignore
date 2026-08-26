@@ -1,0 +1,13 @@
+*.py[codz]
+__pycache__/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.pdm-python
+
+# 加密密钥与本地配置文件(含凭据, 不入库)
+config/secret.key
+logs/
+resource/
+test_resource/
+test_data/

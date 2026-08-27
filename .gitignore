@@ -5,6 +5,11 @@ __pycache__/
 .ruff_cache/
 .pdm-python
 
+# Cython 编译产物
+*.so
+*.c
+build/
+
 # 加密密钥与本地配置文件(含凭据, 不入库)
 config/secret.key
 logs/

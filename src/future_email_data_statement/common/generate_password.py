@@ -1,6 +1,6 @@
 import os
-from pathlib import Path
 from .encrpty import EncryptionTool
+from .get_parent_path import ParentPath
 
 
 def generate_password(plain_text: str = "") -> bytes:
@@ -14,9 +14,7 @@ def generate_password(plain_text: str = "") -> bytes:
     Returns:
         bytes: 加密后的密文。
     """
-    current_dir = Path(__file__).resolve().parent
-    while not (current_dir / "pyproject.toml").exists():
-        current_dir = current_dir.parent
+    current_dir = ParentPath().get_current_dir()
     key_file_path = os.path.join(current_dir, "config/secret.key")
 
     encrpty = EncryptionTool(key_file_path)

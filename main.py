@@ -1,5 +1,5 @@
 import asyncio
-import json
+import configparser
 import os
 import sys
 import time
@@ -35,22 +35,28 @@ warnings.simplefilter("ignore", FutureWarning)
 # ============================================================
 def load_runtime_config() -> dict:
     """
-    读取 config/account_list.json 中的运行时参数。
+    读取 config/info.ini [RunParams] 段中的运行时参数。
 
-    参数说明（与 future_data 项目一致）：
-        - Place             : 运行环境，Trade=生产 / Test=测试，切换数据库与落盘目录
-        - data_list         : 下载日期范围 ['yyyy-mm-dd','yyyy-mm-dd']；空则取最近交易日
-        - Direction         : 黑白名单方向：black / white（预留）
-        - Account_list      : 黑白名单账号列表（预留）
+    本程序按邮箱顺序串行登录下载附件，下载完成后再统一做账号匹配，
+    因此只需 Place / data_list 两项，不需要线程池等并发参数。
+
+    参数说明：
+        - Place     : 运行环境，Trade=生产 / Test=测试，切换数据库与落盘目录
+        - data_list : 下载日期范围 'yyyy-mm-dd' 或 'yyyy-mm-dd,yyyy-mm-dd'；
+                      留空则取最近交易日
 
     Returns:
-        dict: 配置字典；文件缺失或 JSON 解析失败时返回空 dict（各参数走默认值）。
+        dict: 配置字典；读取失败时返回空 dict（各参数走默认值）。
     """
-    config_path = os.path.join(BASE_DIR, "config", "account_list.json")
+    config_path = os.path.join(BASE_DIR, "config", "info.ini")
+    config = configparser.ConfigParser()
     try:
-        with open(config_path, mode="r", encoding="utf-8") as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError) as e:
+        config.read(config_path, encoding="utf-8")
+        place = config.get("RunParams", "Place", fallback="Trade")
+        data_list_raw = config.get("RunParams", "data_list", fallback="")
+        data_list = [d.strip() for d in data_list_raw.split(",") if d.strip()]
+        return {"Place": place, "data_list": data_list}
+    except Exception as e:
         print(f"[main] 读取配置文件失败: {e}，相关参数使用默认值")
         return {}
 

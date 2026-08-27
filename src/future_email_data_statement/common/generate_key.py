@@ -1,11 +1,8 @@
 import os
-from pathlib import Path
 from .encrpty import EncryptionTool
+from .get_parent_path import ParentPath
 
-current_dir = Path(__file__).resolve().parent
-
-while not (current_dir / "pyproject.toml").exists():
-    current_dir = current_dir.parent
+current_dir = ParentPath().get_current_dir()
 key_file_path = os.path.join(current_dir, "config/secret.key")
 if not os.path.exists(key_file_path):
     with open(key_file_path, "w") as file:

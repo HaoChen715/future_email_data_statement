@@ -34,7 +34,8 @@ FILE_PATH_KEYS = (
 class GlobalFunc:
     """全局配置与数据库连接类（风格沿用 future_data 项目，测试/生产环境隔离）。
 
-    通过 config/account_list.json 的 Place 参数（Trade=生产 / Test=测试）统一切换：
+    由 main.py 读取 config/info.ini [RunParams] 的 Place 参数
+    （Trade=生产 / Test=测试）传入后统一切换：
         - 数据库连接   : info.ini 的 [DataBaseParams] / [TestDataBaseParams]
         - 文件落盘目录 : info.ini 的 [FilePath] / [TestFilePath]
     数据库密码为 Fernet 密文，运行时解密。
@@ -63,7 +64,7 @@ class GlobalFunc:
         self.data_path = self.config.get(db_config, "data_path")
 
     def get_parent_path(self) -> Path:
-        """返回项目根目录（含 pyproject.toml）。"""
+        """返回项目根目录（含 pyproject.toml 或 config/info.ini）。"""
         parent = ParentPath()
         return parent.get_current_dir()
 

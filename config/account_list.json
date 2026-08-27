@@ -1,8 +1,0 @@
-{
-    "Direction": "black",
-    "Place": "Trade",
-    "max_workers": 20,
-    "download_timeout": 600,
-    "Account_list": [],
-    "data_list": []
-}

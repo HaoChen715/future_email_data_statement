@@ -20,13 +20,14 @@
 | ② 解压 | `UnZip`（unzip/unzip.py） | 压缩包（zip/rar）解压、直接文件拷贝到最终文件目录 |
 | ③ 匹配迁移 | `CheckAccountFile`（account_match/check_file.py） | 按数据库视图中的资金账号匹配文件，迁移到 `resource/{券商}/{交易日}/` 并备份历史目录 |
 
-- 支持**生产 / 测试环境隔离**：由 `config/account_list.json` 的 `Place` 参数统一切换数据库连接与全部文件落盘目录。
-- 支持**单日 / 日期区间**批量处理（`data_list`），空则取最近交易日。
+- 支持**生产 / 测试环境隔离**：由 `config/info.ini` 的 `[RunParams] Place` 参数统一切换数据库连接与全部文件落盘目录。
+- 支持**单日 / 日期区间**批量处理（`[RunParams] data_list`），空则取最近交易日。
+- 按邮箱顺序**串行登录下载**，全部下载解压后再统一做账号匹配（与股票邮件下载程序一致，无多线程登录）。
 - 账号配置支持**有效期过滤**（start_date / end_date）与**已销户账号自动跳过**（remark 含"销户"）。
 
 ## 运行流程
 
-1. `main.py` 读取运行时配置（Place / data_list），计算待处理交易日列表；
+1. `main.py` 读取 `config/info.ini [RunParams]`（Place / data_list），计算待处理交易日列表；
 2. 逐日执行：
    - **邮件下载**：登录 `config/email.json` 中配置的全部邮箱，搜索当日邮件并下载附件到 `attachments_dir/{交易日}/`；
    - **解压**：压缩包解压、直接文件拷贝到 `final_directory/{交易日}/`，异常压缩包移入 `question_directory/`；
@@ -36,15 +37,15 @@
 
 ```
 main.py                               主入口：下载→解压→匹配迁移 编排
+compile_so.py                         生产部署工具：将 src 下业务模块编译为 .so
 config/
-  account_list.json                   运行时配置（Place / data_list / max_workers）
-  info.ini                            数据库与文件目录配置（密码为 Fernet 密文）
+  info.ini                            运行/数据库/文件目录配置（[RunParams] 等，密码为 Fernet 密文）
   email.json                          邮箱账号配置（账号/口令均为 Fernet 密文）
   secret.key                          Fernet 密钥（本地生成，勿入库）
 src/future_email_data_statement/
   common/                             通用工具
     encrpty.py                        加解密（Fernet）
-    get_parent_path.py                项目根目录定位
+    get_parent_path.py                项目根目录定位（兼容 .py 源码 / .so 生产部署）
     logger_init.py                    日志初始化
     CheckTradingDay.py                交易日判断（SSE 日历）
     generate_key.py / generate_password.py  密钥与密文生成工具
@@ -60,21 +61,11 @@ src/future_email_data_statement/
 
 ## 配置文件
 
-### config/account_list.json（运行时参数）
+### config/info.ini（运行参数与连接、目录配置）
 
-```json
-{
-    "Direction": "black",        // 黑白名单方向：black / white（预留）
-    "Place": "Trade",            // 运行环境：Trade=生产 / Test=测试
-    "max_workers": 20,           // 线程池并发数（预留）
-    "download_timeout": 600,     // 下载阶段整体超时秒数（预留）
-    "Account_list": [],          // 黑白名单账号列表（预留）
-    "data_list": []              // 处理日期：单日 ['yyyy-mm-dd'] / 区间 ['起','止']；空则取最近交易日
-}
-```
-
-### config/info.ini（连接与目录配置，密码为密文）
-
+- `[RunParams]`：运行时参数（无并发相关项，本程序串行处理）
+  - `Place`：运行环境，`Trade`=生产 / `Test`=测试
+  - `data_list`：处理日期，单日 `yyyy-mm-dd` 或区间 `起,止`（逗号分隔）；留空则取最近交易日
 - `[DataBaseParams]` / `[TestDataBaseParams]`：生产库 / 测试库（host / port / user / password / database / data_path）
 - `[FilePath]` / `[TestFilePath]`：生产 / 测试环境文件目录（attachments_dir / resource_dir / history_dir 及解压相关目录）
 
@@ -112,7 +103,14 @@ pdm run python -m src.future_email_data_statement.common.generate_password <明�
 
 # 运行
 pdm run python main.py
+
+# 生产部署：将 src 下业务模块编译为 .so（思路同 future_data 项目 compile_so.py）
+pdm run python compile_so.py
 ```
+
+> **.so 部署说明**：编译后生产目录形态为 `main.py + config/ + src/**/*.so`（无 pyproject.toml），
+> 各模块通过 `common/get_parent_path.py` 以 `config/info.ini` 定位项目根目录；
+> 包内一律使用相对导入（`from ..common.xxx import ...`），保证 .so 模块树加载正常。
 
 ## 日志
 

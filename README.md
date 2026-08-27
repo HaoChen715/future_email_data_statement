@@ -119,11 +119,14 @@ pdm run python main.py 20260826 today check_account        # 仅账号匹配迁�
 ## 生产打包（思路同 future_data 项目）
 
 ```bash
-# 一键打包: ① 编译 src 业务模块为 .so(含 generate_key/generate_password 工具)
+# 一键打包: ① 编译 src 全部业务模块为 .so(含 __init__.py 与 generate_key/generate_password 工具)
 #          ② 扫描虚拟环境依赖 ③ PyInstaller 打包 main.py(排除 src)
-#          ④ 组装发布目录(可执行程序 + 外部 src .so + config 模板)并打 tar.gz
+#          ④ 组装发布目录(可执行程序 + 外部 src 纯 .so 模块树 + config 模板)并打 tar.gz
 pdm run python pyinstall.py
-# 开发机无 gcc 时调试打包可用: pdm run python pyinstall.py --skip-compile(发布包将携带 .py 源码)
+
+# 【限制】发布包 src 目录内只允许存在 .so 文件:
+#   - .so 编译失败或任一 .py 未编译出同名 .so 时, 打包直接中止
+#   - 组装完成后再次校验, 发布目录内检出 .py 同样中止
 
 # 产物:
 #   future_email_data_statement_tree.tar.gz               完整部署包

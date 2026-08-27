@@ -9,18 +9,20 @@ from importlib.metadata import distributions
 # 自动化打包程序（参考 future_data_download_and_clean_to_statement 项目的 pyinstall.py）
 #
 # 整体流程:
-#     1. 调用 compile_so.py 将 src/future_email_data_statement 下业务模块
-#        （含 generate_key / generate_password 等工具）就地编译为 .so;
+#     1. 调用 compile_so.py 将 src/future_email_data_statement 下全部业务模块
+#        （含 __init__.py 与 generate_key / generate_password 等工具）就地编译为 .so;
 #     2. 扫描当前 PDM 虚拟环境的第三方依赖, 生成 PyInstaller --collect-all 参数;
 #     3. PyInstaller -D 打包 main.py（--exclude-module src, 业务模块以外部
 #        .so 模块树形式随发布包部署, 不打入可执行程序）;
-#     4. 组装发布目录: PyInstaller 产物 + 外部 src(.so 模块树, 去除 .py 源码)
+#     4. 组装发布目录: PyInstaller 产物 + 外部 src(纯 .so 模块树, 不含任何 .py)
 #        + config 模板, 并打出 tar.gz 发布包。
 #
+# 【限制】发布包 src 目录内只允许存在 .so 文件:
+#        - .so 编译失败或任一 .py 未编译出同名 .so 时, 打包直接中止;
+#        - 组装后再次校验发布目录, 发现 .py 残留同样中止。
+#
 # 用法:
-#     pdm run python pyinstall.py            # 完整流程(先编译 .so 再打包)
-#     pdm run python pyinstall.py --skip-compile  # 跳过 .so 编译(开发机无 gcc 时调试用,
-#                                                  # 发布包将以 .py 源码形式携带, 仅限内部使用)
+#     pdm run python pyinstall.py            # 完整流程(编译 .so -> 打包 -> 组装)
 # ============================================================
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -52,17 +54,17 @@ MANUAL_HIDDEN_IMPORTS = [
 
 
 def compile_so():
-    """调用 compile_so.py 将业务模块就地编译为 .so。"""
+    """调用 compile_so.py 将业务模块就地编译为 .so（失败即中止打包）。"""
     print("🔧 1. 开始编译 src 下业务模块为 .so ...")
     result = subprocess.run(
         [sys.executable, os.path.join(BASE_DIR, "compile_so.py")],
         cwd=BASE_DIR,
     )
     if result.returncode != 0:
-        print("⚠️ .so 编译失败: 发布包将回退携带 .py 源码(请确认生产编译机已安装 gcc)")
-        return False
+        print("❌ [限制] .so 编译失败, 发布包禁止携带 .py 源码, 打包中止。")
+        print("   请确认编译机已安装 gcc 与 cython (pdm install -G dev)")
+        sys.exit(1)
     print("✅ .so 编译完成")
-    return True
 
 
 def collect_third_party_args():
@@ -130,43 +132,67 @@ def build_pyinstaller(collect_commands):
     print("✅ PyInstaller 打包完成")
 
 
+def _has_so_sibling(dir_path, module_base):
+    """判断目录中是否存在 module_base 模块编译出的 .so（含平台后缀版本）。"""
+    prefix = f"{module_base}."
+    for file in os.listdir(dir_path):
+        if file == f"{module_base}.so":
+            return True
+        if file.startswith(prefix) and file.endswith(".so"):
+            return True
+    return False
+
+
+def verify_so_complete():
+    """校验 src 下每个 .py 均已编译出同名 .so, 返回缺失模块清单。"""
+    missing = []
+    for root, dirs, files in os.walk(SRC_PKG):
+        dirs[:] = [d for d in dirs if d != "__pycache__"]
+        for file in files:
+            if not file.endswith(".py"):
+                continue
+            if not _has_so_sibling(root, os.path.splitext(file)[0]):
+                missing.append(os.path.relpath(os.path.join(root, file), SRC_PKG))
+    return missing
+
+
 def copy_src_tree(dest_root):
-    """复制外部 src 模块树: 优先携带 .so（去除 .py 源码）, 未编译成功则保留 .py。"""
+    """复制外部 src 模块树: 只允许携带 .so, 发布目录内不残留任何 .py。"""
+    missing = verify_so_complete()
+    if missing:
+        print("❌ [限制] 以下 .py 模块未编译出 .so, 发布包禁止携带源码, 打包中止:")
+        for mod in missing:
+            print(f"   - {mod}")
+        sys.exit(1)
+
     src_dest = os.path.join(dest_root, "src", "future_email_data_statement")
     os.makedirs(src_dest, exist_ok=True)
 
     so_count = 0
-    py_count = 0
     for root, dirs, files in os.walk(SRC_PKG):
-        # 跳过字节码缓存
         dirs[:] = [d for d in dirs if d != "__pycache__"]
         rel_dir = os.path.relpath(root, SRC_PKG)
         target_dir = os.path.join(src_dest, rel_dir) if rel_dir != "." else src_dest
         os.makedirs(target_dir, exist_ok=True)
-
         for file in files:
-            if file.endswith(".c"):
-                continue
-            src_file = os.path.join(root, file)
-            if file == "__init__.py":
-                shutil.copy2(src_file, os.path.join(target_dir, file))
-                continue
             if file.endswith(".so"):
-                shutil.copy2(src_file, os.path.join(target_dir, file))
+                shutil.copy2(os.path.join(root, file), os.path.join(target_dir, file))
                 so_count += 1
-            elif file.endswith(".py"):
-                # .so 存在时丢弃同名 .py(源码保护); 编译失败时才携带 .py
-                so_sibling = os.path.splitext(src_file)[0] + ".so"
-                if not os.path.exists(so_sibling):
-                    shutil.copy2(src_file, os.path.join(target_dir, file))
-                    py_count += 1
 
-    if py_count:
-        print(
-            f"⚠️ 发布包携带了 {py_count} 个 .py 源码文件(未编译成功), 仅限内部测试使用"
-        )
-    else:
-        print(f"✅ 外部 src 模块树组装完成: {so_count} 个 .so, 无 .py 源码")
+    # 组装后二次校验: 发布目录 src 内不允许出现任何 .py
+    py_left = [
+        os.path.join(root, file)
+        for root, _, files in os.walk(src_dest)
+        for file in files
+        if file.endswith(".py")
+    ]
+    if py_left:
+        print("❌ [限制] 发布目录 src 内检出 .py 文件, 打包中止:")
+        for f in py_left:
+            print(f"   - {f}")
+        sys.exit(1)
+
+    print(f"✅ 外部 src 模块树组装完成: 共 {so_count} 个 .so, 0 个 .py")
     return src_dest
 
 
@@ -211,13 +237,7 @@ def assemble_deploy_dir():
 
 
 def main():
-    skip_compile = "--skip-compile" in sys.argv
-
-    if skip_compile:
-        print("⚠️ 已跳过 .so 编译(仅限开发调试, 生产发布必须携带 --skip-compile 之外的完整流程)")
-    else:
-        compile_so()
-
+    compile_so()
     collect_commands = collect_third_party_args()
     build_pyinstaller(collect_commands)
     assemble_deploy_dir()

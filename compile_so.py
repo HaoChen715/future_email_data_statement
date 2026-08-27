@@ -10,21 +10,17 @@ def compile_all_py_to_so():
     将 src/future_email_data_statement 下的全部业务模块就地编译为 .so。
 
     思路沿用 future_data_download_and_clean_to_statement 项目的 compile_so.py：
-        - 每个 .py 在独立子进程中使用 Cython 编译（-i 就地生成 .so，-3 采用
-          Python 3 语法，-X always_allow_keywords 允许关键字参数调用）；
-        - __init__.py 保持 .py 形式，保证包结构完整、相对导入正常；
+        - 每个 .py（含 __init__.py, 保证发布包 src 目录内不残留任何 .py）在独立
+          子进程中使用 Cython 编译（-i 就地生成 .so，-3 采用 Python 3 语法，
+          -X always_allow_keywords 允许关键字参数调用）；
         - 编译后清理中间产物 .c 文件与根目录 build 缓存。
 
-    生产部署形态：main.py + config/ + src 下 .so 模块树（无 pyproject.toml），
+    生产部署形态：main.py + config/ + src 下纯 .so 模块树（无 pyproject.toml），
     各模块内通过 ParentPath 以 config/info.ini 定位项目根目录。
     """
-    # 1. 递归查找目标文件（自动排除 __init__.py）
+    # 1. 递归查找目标文件（包含 __init__.py, 全量编译后 src 内不留 .py）
     target_pattern = os.path.join("src", "future_email_data_statement", "**", "*.py")
-    py_files = [
-        f
-        for f in glob.glob(target_pattern, recursive=True)
-        if not f.endswith("__init__.py")
-    ]
+    py_files = sorted(glob.glob(target_pattern, recursive=True))
 
     if not py_files:
         print("💡 未找到需要编译的 .py 文件。")

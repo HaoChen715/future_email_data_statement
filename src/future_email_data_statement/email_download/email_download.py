@@ -46,7 +46,7 @@ class Auto_DownLoad_Email:
         self.current_dir = parent_path.get_current_dir()
         # 通过 info.ini（Place 切换生产/测试）读取落盘目录与密钥
         global_func = GlobalFunc(statement_type=statement_type)
-        self.attachments_dir = global_func.get_file_path("attachments_dir")
+        self.attachments_dir = global_func.get_file_path("email_download_root")
         self.encrpty = EncryptionTool(f"{self.current_dir}/config/secret.key")
         logger_init = LoggerInit()
         self.logger = logger_init.logger_init(

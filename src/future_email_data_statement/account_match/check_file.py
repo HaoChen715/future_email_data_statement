@@ -2,7 +2,6 @@ import asyncio
 import os
 import shutil
 import warnings
-from datetime import datetime
 
 import pandas as pd
 from openpyxl import load_workbook
@@ -31,11 +30,10 @@ class CheckAccountFile:
         global_func = GlobalFunc(statement_type=statement_type)
         self.current_dir = global_func.get_parent_path()
         self.engine, self.dtime = global_func.connect_database()
-        # 文件迁移目录：资源目录与历史备份目录（取自 info.ini [FilePath]/[TestFilePath]）
-        self.destination_directory = global_func.get_file_path("resource_dir")
-        self.history_path = global_func.get_file_path("history_dir")
+        # 文件迁移目录：资源目录（取自 info.ini [FilePath]/[TestFilePath]）
+        self.destination_directory = global_func.get_file_path("resource_root")
         # 解压后的最终文件目录（随环境切换）
-        self.final_file_dir = global_func.get_file_path("final_directory")
+        self.final_file_dir = global_func.get_file_path("unzip_final_root")
         self.running_day = running_day
         check_trading_day = CheckTradingDay()
         self.previous_trading_day = check_trading_day.previous_trading_day(
@@ -133,7 +131,7 @@ class CheckAccountFile:
 
     def move_file(self, file_path: str, source: str, broker_id: str):
         """
-        将匹配成功的文件迁移到资源目录与历史备份目录。
+        将匹配成功的文件迁移到资源目录。
 
         Args:
             file_path (str): 源文件路径。
@@ -145,15 +143,8 @@ class CheckAccountFile:
             broker_id,
             self.running_day,
         )
-        his_targetdir = os.path.join(
-            self.history_path,
-            broker_id,
-            datetime.now().strftime("%Y%m"),
-        )
         os.makedirs(target_directory, exist_ok=True)
-        os.makedirs(his_targetdir, exist_ok=True)
         shutil.copy(file_path, target_directory)
-        shutil.copy(file_path, his_targetdir)
         self.logger.info(f"文件{file_path} 迁移完成")
 
     async def check_file_account(self, account_info: pd.DataFrame):

@@ -30,9 +30,9 @@
 1. `main.py` 读取命令行参数（yyyymmdd / today|last / steps）与 `config/info.ini [RunParams]`（Place）；
 2. 根据运行日计算上一交易日，确定邮件下载日（last 模式取上一交易日）；
 3. 按步骤执行：
-   - **邮件下载**：登录 `config/email.json` 中配置的全部邮箱，搜索当日邮件并下载附件到 `attachments_dir/{交易日}/`；
-   - **解压**：压缩包解压、直接文件拷贝到 `final_directory/{交易日}/`，异常压缩包移入 `question_directory/`；
-   - **账号匹配**：查询视图 `v_config_bill_future_account`（当日有效账号），先按文件名匹配资金账号，未命中再按文件内容（前 20 行）匹配；命中后迁移到 `resource/{broker}/{交易日}/`，同时备份到 `history/{broker}/{yyyyMM}/`。
+   - **邮件下载**：登录 `config/email.json` 中配置的全部邮箱，搜索当日邮件并下载附件到 `email_download_root/{交易日}/`；
+   - **解压**：压缩包解压、直接文件拷贝到 `unzip_final_root/{交易日}/`，异常压缩包移入 `unzip_question_root/`；
+   - **账号匹配**：查询视图 `v_config_bill_future_account`（当日有效账号），先按文件名匹配资金账号，未命中再按文件内容（前 20 行）匹配；命中后迁移到 `resource_root/{broker}/{交易日}/`。
 
 ## 目录结构
 
@@ -70,8 +70,11 @@ src/future_email_data_statement/
 
 - `[RunParams]`：运行时参数
   - `Place`：运行环境，`Trade`=生产 / `Test`=测试（处理日期与执行步骤由命令行参数控制）
-- `[DataBaseParams]` / `[TestDataBaseParams]`：生产库 / 测试库（host / port / user / password / database / data_path）
-- `[FilePath]` / `[TestFilePath]`：生产 / 测试环境文件目录（attachments_dir / resource_dir / history_dir 及解压相关目录）
+- `[DataBaseParams]` / `[TestDataBaseParams]`：生产库 / 测试库（host / port / user / password / database）
+- `[FilePath]` / `[TestFilePath]`：生产 / 测试环境文件目录（键名与 auto_down_email 项目 data_paths.json 一致）：
+  - `email_download_root`：邮件附件下载根目录
+  - `unzip_zip_root` / `unzip_extract_root` / `unzip_final_root` / `unzip_question_root`：解压各阶段目录
+  - `resource_root`：账号匹配后对账单文件存放根目录
 
 > `Place=Trade` 时读取 `[DataBaseParams]` + `[FilePath]`，`Place=Test` 时读取 `[TestDataBaseParams]` + `[TestFilePath]`，
 > 测试环境默认落在本地 `./test_data`、`./test_resource`，不会污染生产目录。

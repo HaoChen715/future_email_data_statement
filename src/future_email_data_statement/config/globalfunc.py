@@ -19,15 +19,14 @@ FILE_PATH_CONFIG_MAP = {
     "Trade": "FilePath",
     "Test": "TestFilePath",
 }
-# 文件目录配置键名全集
+# 文件目录配置键名全集（与 auto_down_email 项目 data_paths.json 键名一致）
 FILE_PATH_KEYS = (
-    "attachments_dir",
-    "resource_dir",
-    "history_dir",
-    "zip_file_dir",
-    "extract_directory",
-    "final_directory",
-    "question_directory",
+    "email_download_root",
+    "resource_root",
+    "unzip_zip_root",
+    "unzip_extract_root",
+    "unzip_final_root",
+    "unzip_question_root",
 )
 
 
@@ -60,8 +59,6 @@ class GlobalFunc:
         self.db_host = self.config.get(db_config, "host")
         self.db_port = self.config.get(db_config, "port")
         self.db_database = database or self.config.get(db_config, "database")
-        # 对账单文件落盘根目录（当前阶段预留，后续清洗/入库阶段使用）
-        self.data_path = self.config.get(db_config, "data_path")
 
     def get_parent_path(self) -> Path:
         """返回项目根目录（含 pyproject.toml 或 config/info.ini）。"""
@@ -106,7 +103,7 @@ class GlobalFunc:
         读取当前环境对应 [FilePath]/[TestFilePath] 段中的文件目录配置。
 
         Args:
-            key (str): 配置键名，如 attachments_dir / resource_dir / history_dir。
+            key (str): 配置键名，如 email_download_root / resource_root / unzip_zip_root。
 
         Returns:
             str: 目录路径；相对路径（以 ./ 开头）将基于项目根目录展开。

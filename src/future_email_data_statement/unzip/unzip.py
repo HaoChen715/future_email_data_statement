@@ -73,19 +73,19 @@ class UnZip:
     def unzip(self):
         # 定义目录路径
         source_dir = os.path.join(
-            self.paths["attachments_dir"], self.unzip_file_day
+            self.paths["email_download_root"], self.unzip_file_day
         )  # 源目录
         zip_file_dir = os.path.join(
-            self.paths["zip_file_dir"], self.unzip_file_day
+            self.paths["unzip_zip_root"], self.unzip_file_day
         )  # 拷贝目录
         extract_dir = os.path.join(
-            self.paths["extract_directory"], self.unzip_file_day
+            self.paths["unzip_extract_root"], self.unzip_file_day
         )  # 解压目录
         final_dir = os.path.join(
-            self.paths["final_directory"], self.unzip_file_day
+            self.paths["unzip_final_root"], self.unzip_file_day
         )  # 最终文件存放目录
         question_dir = os.path.join(
-            self.paths["question_directory"], self.unzip_file_day
+            self.paths["unzip_question_root"], self.unzip_file_day
         )  # 异常压缩文件存放目录
 
         # 确保目录存在

@@ -21,14 +21,15 @@
 | ③ 匹配迁移 | `CheckAccountFile`（account_match/check_file.py） | 按数据库视图中的资金账号匹配文件，迁移到 `resource/{券商}/{交易日}/` 并备份历史目录 |
 
 - 支持**生产 / 测试环境隔离**：由 `config/info.ini` 的 `[RunParams] Place` 参数统一切换数据库连接与全部文件落盘目录。
-- 支持**单日 / 日期区间**批量处理（`[RunParams] data_list`），空则取最近交易日。
+- 处理日期与执行步骤**通过命令行参数控制**（`main.py yyyymmdd [today|last] [steps...]`，风格沿用 auto_down_email 项目）：`today`=下载当天邮件，`last`=下载上一交易日邮件。
 - 按邮箱顺序**串行登录下载**，全部下载解压后再统一做账号匹配（与股票邮件下载程序一致，无多线程登录）。
 - 账号配置支持**有效期过滤**（start_date / end_date）与**已销户账号自动跳过**（remark 含"销户"）。
 
 ## 运行流程
 
-1. `main.py` 读取 `config/info.ini [RunParams]`（Place / data_list），计算待处理交易日列表；
-2. 逐日执行：
+1. `main.py` 读取命令行参数（yyyymmdd / today|last / steps）与 `config/info.ini [RunParams]`（Place）；
+2. 根据运行日计算上一交易日，确定邮件下载日（last 模式取上一交易日）；
+3. 按步骤执行：
    - **邮件下载**：登录 `config/email.json` 中配置的全部邮箱，搜索当日邮件并下载附件到 `attachments_dir/{交易日}/`；
    - **解压**：压缩包解压、直接文件拷贝到 `final_directory/{交易日}/`，异常压缩包移入 `question_directory/`；
    - **账号匹配**：查询视图 `v_config_bill_future_account`（当日有效账号），先按文件名匹配资金账号，未命中再按文件内容（前 20 行）匹配；命中后迁移到 `resource/{broker}/{交易日}/`，同时备份到 `history/{broker}/{yyyyMM}/`。
@@ -63,9 +64,8 @@ src/future_email_data_statement/
 
 ### config/info.ini（运行参数与连接、目录配置）
 
-- `[RunParams]`：运行时参数（无并发相关项，本程序串行处理）
-  - `Place`：运行环境，`Trade`=生产 / `Test`=测试
-  - `data_list`：处理日期，单日 `yyyy-mm-dd` 或区间 `起,止`（逗号分隔）；留空则取最近交易日
+- `[RunParams]`：运行时参数
+  - `Place`：运行环境，`Trade`=生产 / `Test`=测试（处理日期与执行步骤由命令行参数控制）
 - `[DataBaseParams]` / `[TestDataBaseParams]`：生产库 / 测试库（host / port / user / password / database / data_path）
 - `[FilePath]` / `[TestFilePath]`：生产 / 测试环境文件目录（attachments_dir / resource_dir / history_dir 及解压相关目录）
 
@@ -101,8 +101,12 @@ pdm run python -m src.future_email_data_statement.common.generate_key
 # 生成密码/邮箱口令密文并填入 info.ini / email.json
 pdm run python -m src.future_email_data_statement.common.generate_password <明文>
 
-# 运行
-pdm run python main.py
+# 运行（参数风格沿用 auto_down_email 项目）
+# yyyymmdd 为运行日期, today|last 为下载模式, 步骤可选(默认全部执行)
+pdm run python main.py 20260826 today                 # 下载当天邮件 → 解压 → 账号匹配
+pdm run python main.py 20260826 last                  # 下载上一交易日邮件 → 解压 → 账号匹配
+pdm run python main.py 20260826 today download_and_unzip   # 仅下载解压
+pdm run python main.py 20260826 today check_account        # 仅账号匹配迁移
 
 # 生产部署：将 src 下业务模块编译为 .so（思路同 future_data 项目 compile_so.py）
 pdm run python compile_so.py

@@ -33,32 +33,22 @@ warnings.simplefilter("ignore", FutureWarning)
 # ============================================================
 # 2. 运行时配置加载
 # ============================================================
-def load_runtime_config() -> dict:
+def load_place() -> str:
     """
-    读取 config/info.ini [RunParams] 段中的运行时参数。
+    读取 config/info.ini [RunParams] 中的 Place 运行环境。
 
-    本程序按邮箱顺序串行登录下载附件，下载完成后再统一做账号匹配，
-    因此只需 Place / data_list 两项，不需要线程池等并发参数。
-
-    参数说明：
-        - Place     : 运行环境，Trade=生产 / Test=测试，切换数据库与落盘目录
-        - data_list : 下载日期范围 'yyyy-mm-dd' 或 'yyyy-mm-dd,yyyy-mm-dd'；
-                      留空则取最近交易日
+    处理日期与执行步骤均通过命令行参数控制（见 main），本程序无需其他运行时参数。
 
     Returns:
-        dict: 配置字典；读取失败时返回空 dict（各参数走默认值）。
+        str: 运行环境，Trade=生产 / Test=测试；读取失败时默认 Trade。
     """
-    config_path = os.path.join(BASE_DIR, "config", "info.ini")
     config = configparser.ConfigParser()
     try:
-        config.read(config_path, encoding="utf-8")
-        place = config.get("RunParams", "Place", fallback="Trade")
-        data_list_raw = config.get("RunParams", "data_list", fallback="")
-        data_list = [d.strip() for d in data_list_raw.split(",") if d.strip()]
-        return {"Place": place, "data_list": data_list}
+        config.read(os.path.join(BASE_DIR, "config", "info.ini"), encoding="utf-8")
+        return config.get("RunParams", "Place", fallback="Trade")
     except Exception as e:
-        print(f"[main] 读取配置文件失败: {e}，相关参数使用默认值")
-        return {}
+        print(f"[main] 读取配置文件失败: {e}，使用默认 Place=Trade")
+        return "Trade"
 
 
 def _fmt_elapsed(seconds: float) -> str:
@@ -69,73 +59,67 @@ def _fmt_elapsed(seconds: float) -> str:
 
 
 # ============================================================
-# 3. 单日流水线：邮件下载 → 解压 → 账号匹配迁移
-# ============================================================
-def run_single_day(trading_day: str, place: str) -> None:
-    """
-    对单个交易日执行完整文件准备流程。
-
-    1. 邮件下载：按 auto_down_email 思路从邮箱下载当日附件到 attachments/{日}；
-    2. 解压：压缩包解压、直接文件拷贝到 unzip/final_file/{日}；
-    3. 账号匹配：按数据库视图 v_config_bill_future_account 中的资金账号匹配文件，
-       迁移到 resource/{券商}/{日}/ 并备份历史目录。
-
-    Args:
-        trading_day (str): 交易日，"yyyy-mm-dd" 格式。
-        place (str): 运行环境，Trade / Test。
-    """
-    download_day = trading_day.replace("-", "")
-    print(f"\n{'=' * 50}")
-    print(f"[main] 开始处理交易日: {trading_day}")
-    print(f"{'=' * 50}\n")
-
-    # ① 邮件下载
-    email_download = Auto_DownLoad_Email(
-        email_download_day=download_day, statement_type=place
-    )
-    email_download.main()
-
-    # ② 解压
-    unzip = UnZip(unzip_file_day=download_day, statement_type=place)
-    unzip.unzip()
-
-    # ③ 账号匹配与文件迁移
-    check_file = CheckAccountFile(running_day=download_day, statement_type=place)
-    asyncio.run(check_file.main())
-
-
-# ============================================================
-# 4. 程序入口
+# 3. 主流程：邮件下载 → 解压 → 账号匹配迁移
 # ============================================================
 def main() -> None:
     """
-    程序入口：
-        1. 加载配置文件，读取 Place / data_list；
-        2. 计算需要处理的交易日列表（空则取最近交易日）；
-        3. 逐日执行：邮件下载 → 解压 → 账号匹配迁移。
-    """
-    start_time = time.time()
-    config = load_runtime_config()
+    程序主入口：邮件下载 -> 压缩包解压 -> 账号校验迁移（参数控制风格沿用 auto_down_email 项目）。
 
-    place = config.get("Place", "Trade")
-    date_list = config.get("data_list") or [time.strftime("%Y-%m-%d")]
+    用法：
+        pdm run python main.py yyyymmdd [today|last] [steps...]
+
+    参数说明：
+        yyyymmdd     运行日期（邮件下载日）。
+        today|last   下载模式：today=下载当天邮件，last=下载上一交易日邮件。
+        steps        可选步骤（可多个，默认全部执行）：
+                     download_and_unzip / check_account
+    """
+    if len(sys.argv) < 3:
+        print("缺少参数！用法：pdm run python main.py yyyymmdd [today|last] [steps...]")
+        sys.exit(1)
+
+    start_time = time.time()
+    running_day = sys.argv[1]
+    is_tradingday = sys.argv[2]
+    # 剩余参数为步骤列表；未指定时默认执行完整流水线
+    steps = sys.argv[3:] or ["download_and_unzip", "check_account"]
+
+    place = load_place()
     print(
-        f"[main] 配置加载完成: Place={place}, data_list={date_list}"
+        f"[main] 当前时间: {time.strftime('%Y-%m-%d %H:%M:%S')}，运行日: {running_day}，"
+        f"下载模式: {is_tradingday}，运行环境: {place}，执行步骤: {steps}"
     )
 
-    # 校验日期范围，得到交易日列表
-    check_trading_day = CheckTradingDay()
-    trading_days_list = check_trading_day.judge_trading_day(date_list=date_list)
-    print(f"[main] 待处理交易日: {trading_days_list}")
+    # 根据运行日计算上一交易日
+    check_trading = CheckTradingDay()
+    last_trading_day = check_trading.previous_trading_day(date=running_day)
 
-    for trading_day in trading_days_list:
-        try:
-            run_single_day(trading_day=trading_day, place=place)
-        except Exception as e:
-            import traceback
+    # 下载模式为 last 时，下载的是上一交易日的邮件；否则下载当天的邮件
+    if is_tradingday == "last":
+        email_download_day = last_trading_day
+        print(f"[main] 模式 [last]：下载上一交易日 {email_download_day} 的邮件")
+    else:
+        email_download_day = running_day
+        print(f"[main] 模式 [today]：下载当天 {email_download_day} 的邮件")
 
-            print(f"[main] 交易日 {trading_day} 处理异常: {e}")
-            traceback.print_exc()
+    # ================= 1. 下载与解压环节 =================
+    if "download_and_unzip" in steps:
+        email_download = Auto_DownLoad_Email(
+            email_download_day=email_download_day, statement_type=place
+        )
+        email_download.main()
+
+        unzip = UnZip(unzip_file_day=email_download_day, statement_type=place)
+        unzip.unzip()
+        print(f"[main] 邮件获取日 {email_download_day} 附件数据下载解压处理完毕")
+
+    # ================= 2. 账号校验迁移环节 =================
+    if "check_account" in steps:
+        check_file = CheckAccountFile(
+            running_day=email_download_day, statement_type=place
+        )
+        asyncio.run(check_file.main())
+        print(f"[main] 邮件获取日 {email_download_day} 附件数据核对分类处理完毕")
 
     print(f"\n{'=' * 50}")
     print(f"[main] 程序总运行时间: {_fmt_elapsed(time.time() - start_time)}")

@@ -39,10 +39,14 @@
 ```
 main.py                               主入口：下载→解压→匹配迁移 编排
 compile_so.py                         生产部署工具：将 src 下业务模块编译为 .so
+pyinstall.py                          一键打包：.so 编译 + PyInstaller + 发布包组装
 config/
   info.ini                            运行/数据库/文件目录配置（[RunParams] 等，密码为 Fernet 密文）
   email.json                          邮箱账号配置（账号/口令均为 Fernet 密文）
   secret.key                          Fernet 密钥（本地生成，勿入库）
+config_template/                      部署配置模板（打包时随发布包分发，真实凭据不打包）
+docs/
+  内网GitLab推送计划.md                内网 GitLab 克隆推送与部署方案
 src/future_email_data_statement/
   common/                             通用工具
     encrpty.py                        加解密（Fernet）
@@ -107,14 +111,26 @@ pdm run python main.py 20260826 today                 # 下载当天邮件 → �
 pdm run python main.py 20260826 last                  # 下载上一交易日邮件 → 解压 → 账号匹配
 pdm run python main.py 20260826 today download_and_unzip   # 仅下载解压
 pdm run python main.py 20260826 today check_account        # 仅账号匹配迁移
-
-# 生产部署：将 src 下业务模块编译为 .so（思路同 future_data 项目 compile_so.py）
-pdm run python compile_so.py
 ```
 
-> **.so 部署说明**：编译后生产目录形态为 `main.py + config/ + src/**/*.so`（无 pyproject.toml），
-> 各模块通过 `common/get_parent_path.py` 以 `config/info.ini` 定位项目根目录；
-> 包内一律使用相对导入（`from ..common.xxx import ...`），保证 .so 模块树加载正常。
+## 生产打包（思路同 future_data 项目）
+
+```bash
+# 一键打包: ① 编译 src 业务模块为 .so(含 generate_key/generate_password 工具)
+#          ② 扫描虚拟环境依赖 ③ PyInstaller 打包 main.py(排除 src)
+#          ④ 组装发布目录(可执行程序 + 外部 src .so + config 模板)并打 tar.gz
+pdm run python pyinstall.py
+# 开发机无 gcc 时调试打包可用: pdm run python pyinstall.py --skip-compile(发布包将携带 .py 源码)
+
+# 产物:
+#   future_email_data_statement_tree.tar.gz               完整部署包
+#   future_email_data_statement_config_template.tar.gz    config 模板包
+```
+
+> **部署形态**：`可执行程序 + _internal 运行库 + 外部 src/.so 模块树 + config 模板`，
+> 真实凭据不打包（部署时填写 config 并运行 generate_key / generate_password 生成密文），
+> 运行方式：`./future_email_data_statement yyyymmdd [today|last] [steps...]`。
+> 内网 GitLab 推送与部署步骤见 [docs/内网GitLab推送计划.md](docs/内网GitLab推送计划.md)。
 
 ## 日志
 

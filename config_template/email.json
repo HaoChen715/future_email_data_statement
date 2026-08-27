@@ -1,0 +1,18 @@
+{
+    "user1": {
+        "email_usr": "",
+        "email_pwd": "",
+        "email_safe_code": "",
+        "mail_server": "",
+        "port": 993,
+        "user_code": "True"
+    },
+    "user2": {
+        "email_usr": "",
+        "email_pwd": "",
+        "email_safe_code": "",
+        "mail_server": "",
+        "port": 993,
+        "user_code": "False"
+    }
+}

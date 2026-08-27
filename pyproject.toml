@@ -19,6 +19,7 @@ dependencies = [
     "pandas-market-calendars>=5.4.0",
     "cryptography>=50.0.0",
     "pymysql>=1.1.1",
+    "certifi>=2026.7.22",
 ]
 requires-python = "==3.11.*"
 readme = "README.md"
@@ -31,6 +32,7 @@ distribution = false
 [tool.pdm.dev-dependencies]
 dev = [
     "cython>=3.2.5",
+    "pyinstaller>=6.20.0",
 ]
 
 [[tool.pdm.source]]

@@ -10,6 +10,12 @@ __pycache__/
 *.c
 build/
 
+# PyInstaller 打包产物
+dist/
+*.spec
+*_deploy/
+*.tar.gz
+
 # 加密密钥与本地配置文件(含凭据, 不入库)
 config/secret.key
 logs/

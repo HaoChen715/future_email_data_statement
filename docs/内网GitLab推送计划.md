@@ -65,17 +65,30 @@ git remote -v                  # origin(可选, 内网可保留指向 GitHub 或
 
 ## 五、后续增量同步
 
-每次外网有更新后，重复"打包 → 传输 → 内网拉取"：
+每次外网有更新后，重复"打包 → 传输 → 内网拉取"。
+
+> ⚠️ **关键点**：bundle 必须携带分支头引用（ref）。用提交区间
+> `main@{1}..main` 打出的 bundle 不含任何 ref，内网 `git fetch` 会报
+> `fatal: could not find ref HEAD`。必须用 `git bundle create <file> <分支> --not <基线>`
+> 的写法（bundle 内记录 main 引用，基线 commit 仅作为前提声明）。
 
 ```bash
-# 开发机(外网): 只打包相对上次同步点的增量
-git bundle create update.bundle main@{1}..main   # 或记录上次同步的 commit hash 代替 main@{1}
-# 打包前确认: git log main@{1}..main --oneline 为本次需要同步的提交
+# 开发机(外网): 记录上次同步到内网的基线(首次全量同步后 main 的头部 commit)
+BASELINE=<上次同步的commit hash>          # 可用 git rev-parse main 在同步后记录
+
+# 方式 A(推荐, 仓库小时最简单): 直接重打全量包(含全部 ref)
+git bundle create update.bundle --all
+
+# 方式 B(增量): 带分支头引用 + 基线前提, 体积最小
+git bundle create update.bundle main --not $BASELINE
+git bundle verify update.bundle          # 应列出 refs/heads/main 及所需前提 commit
+
+# 打包前确认本次同步的提交范围: git log $BASELINE..main --oneline
 
 # 内网机器:
-git fetch update.bundle
-git merge FETCH_HEAD            # 或 git pull update.bundle main
-git push gitlab --all           # 推送到内网 GitLab
+git fetch update.bundle                  # bundle 内含 ref, 可正常 fetch
+git merge FETCH_HEAD                     # 或 git pull update.bundle main
+git push gitlab --all                    # 推送到内网 GitLab
 ```
 
 > 也可直接用 `git format-patch` 生成补丁系列传输，但 bundle 保留提交历史与分支关系，推荐 bundle。
@@ -123,9 +136,9 @@ python -m src.future_email_data_statement.common.generate_password <明文密码
 ## 八、命令速查
 
 ```bash
-git bundle create repo.bundle --all        # 全量打包
-git bundle verify repo.bundle              # 校验
-git clone repo.bundle dir                  # bundle 克隆
-git bundle create upd.bundle old..new      # 增量打包
-git fetch upd.bundle && git merge FETCH_HEAD   # 内网增量合并
+git bundle create repo.bundle --all                # 全量打包(含全部 ref)
+git bundle verify repo.bundle                      # 校验
+git clone repo.bundle dir                          # bundle 克隆
+git bundle create upd.bundle main --not <基线>      # 增量打包(必须带分支头引用, 否则 fetch 报 could not find ref HEAD)
+git fetch upd.bundle && git merge FETCH_HEAD       # 内网增量合并
 ```

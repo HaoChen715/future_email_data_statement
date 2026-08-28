@@ -7,9 +7,9 @@ from datetime import datetime
 import patoolib
 import rarfile
 
-from ..common.get_parent_path import ParentPath
-from ..config.globalfunc import GlobalFunc
-from ..common.logger_init import LoggerInit
+from src.future_email_data_statement.common.get_parent_path import ParentPath
+from src.future_email_data_statement.config.globalfunc import GlobalFunc
+from src.future_email_data_statement.common.logger_init import LoggerInit
 
 
 class UnZip:

@@ -1,6 +1,6 @@
 import os
-from .encrpty import EncryptionTool
-from .get_parent_path import ParentPath
+from src.future_email_data_statement.common.encrpty import EncryptionTool
+from src.future_email_data_statement.common.get_parent_path import ParentPath
 
 
 def generate_password(plain_text: str = "") -> bytes:

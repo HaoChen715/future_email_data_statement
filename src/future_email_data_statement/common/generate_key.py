@@ -1,6 +1,6 @@
 import os
-from .encrpty import EncryptionTool
-from .get_parent_path import ParentPath
+from src.future_email_data_statement.common.encrpty import EncryptionTool
+from src.future_email_data_statement.common.get_parent_path import ParentPath
 
 current_dir = ParentPath().get_current_dir()
 key_file_path = os.path.join(current_dir, "config/secret.key")

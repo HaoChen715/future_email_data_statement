@@ -7,9 +7,9 @@ import pandas as pd
 from openpyxl import load_workbook
 from sqlalchemy import text
 
-from ..common.CheckTradingDay import CheckTradingDay
-from ..config.globalfunc import GlobalFunc
-from ..common.logger_init import LoggerInit
+from src.future_email_data_statement.common.CheckTradingDay import CheckTradingDay
+from src.future_email_data_statement.config.globalfunc import GlobalFunc
+from src.future_email_data_statement.common.logger_init import LoggerInit
 
 
 # 忽略指定的 UserWarning

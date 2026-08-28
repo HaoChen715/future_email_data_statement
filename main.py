@@ -3,6 +3,7 @@ import configparser
 import os
 import sys
 import time
+import traceback
 import warnings
 
 # ============================================================
@@ -104,22 +105,49 @@ def main() -> None:
 
     # ================= 1. 下载与解压环节 =================
     if "download_and_unzip" in steps:
-        email_download = Auto_DownLoad_Email(
-            email_download_day=email_download_day, statement_type=place
-        )
-        email_download.main()
+        try:
+            email_download = Auto_DownLoad_Email(
+                email_download_day=email_download_day, statement_type=place
+            )
+            email_download.main()
 
-        unzip = UnZip(unzip_file_day=email_download_day, statement_type=place)
-        unzip.unzip()
-        print(f"[main] 邮件获取日 {email_download_day} 附件数据下载解压处理完毕")
+            # 校验下载结果: 附件目录必须非空, 否则视为失败并明确报错
+            download_dir = os.path.join(
+                email_download.attachments_dir, email_download_day
+            )
+            downloaded_files = (
+                [f for f in os.listdir(download_dir)]
+                if os.path.isdir(download_dir)
+                else []
+            )
+            if not downloaded_files:
+                raise RuntimeError(
+                    f"附件下载目录为空: {download_dir}，请检查邮箱配置与当日邮件"
+                )
+            print(
+                f"[main] 邮件下载完成: 共 {len(downloaded_files)} 个附件文件"
+            )
+
+            unzip = UnZip(unzip_file_day=email_download_day, statement_type=place)
+            unzip.unzip()
+            print(f"[main] 邮件获取日 {email_download_day} 附件数据下载解压处理完毕")
+        except Exception as e:
+            print(f"[main] download_and_unzip 步骤执行失败: {type(e).__name__}: {e}")
+            traceback.print_exc()
+            sys.exit(1)
 
     # ================= 2. 账号校验迁移环节 =================
     if "check_account" in steps:
-        check_file = CheckAccountFile(
-            running_day=email_download_day, statement_type=place
-        )
-        asyncio.run(check_file.main())
-        print(f"[main] 邮件获取日 {email_download_day} 附件数据核对分类处理完毕")
+        try:
+            check_file = CheckAccountFile(
+                running_day=email_download_day, statement_type=place
+            )
+            asyncio.run(check_file.main())
+            print(f"[main] 邮件获取日 {email_download_day} 附件数据核对分类处理完毕")
+        except Exception as e:
+            print(f"[main] check_account 步骤执行失败: {type(e).__name__}: {e}")
+            traceback.print_exc()
+            sys.exit(1)
 
     print(f"\n{'=' * 50}")
     print(f"[main] 程序总运行时间: {_fmt_elapsed(time.time() - start_time)}")

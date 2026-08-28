@@ -808,8 +808,8 @@ class Auto_DownLoad_Email:
             return 0
 
     def main(self):
+        download_dir = os.path.join(self.attachments_dir, self.email_download_day)
         try:
-            download_dir = os.path.join(self.attachments_dir, self.email_download_day)
             if not os.path.exists(download_dir):
                 os.makedirs(download_dir)
             else:
@@ -817,13 +817,30 @@ class Auto_DownLoad_Email:
                 # 重新创建文件夹
                 os.makedirs(download_dir)
                 self.logger.info("历史邮件文件清理完成")
-            email_dict = self.load_config()
-            for user, user_info in email_dict.items():
-                self.logger.info(f"当前下载邮件用户：{user}")
-                mail = self.login(user_info)
-                if not mail:
-                    continue
+        except Exception as e:
+            self.logger.error(f"附件下载目录创建失败: {download_dir}, 错误: {e}")
+            self.logger.error("详细异常: %s", traceback.format_exc())
+            raise
 
+        try:
+            email_dict = self.load_config()
+        except FileNotFoundError:
+            raise RuntimeError(
+                f"邮箱配置文件不存在: {self.current_dir}/config/email.json"
+            )
+        if not email_dict:
+            raise RuntimeError("config/email.json 中无邮箱账号配置")
+
+        login_success = 0
+        total_attachments = 0
+        for user, user_info in email_dict.items():
+            self.logger.info(f"当前下载邮件用户：{user}")
+            mail = self.login(user_info)
+            if not mail:
+                continue
+            login_success += 1
+
+            try:
                 server_tz = self.get_server_timezone(mail)
 
                 # 精确日期范围计算
@@ -839,34 +856,47 @@ class Auto_DownLoad_Email:
                 search_criteria = ["SINCE", start_dt, "BEFORE", end_dt]
                 self.logger.info(f"最终搜索条件: {search_criteria}")
 
-                try:
-                    if user == "yr":
-                        mail.id_({"name": "IMAPClient", "version": "2.1.0"})
-                    mail.select_folder("INBOX", readonly=True)
-                    self.logger.info(f"执行搜索: {search_criteria}")
+                if user == "yr":
+                    mail.id_({"name": "IMAPClient", "version": "2.1.0"})
+                mail.select_folder("INBOX", readonly=True)
+                self.logger.info(f"执行搜索: {search_criteria}")
 
-                    email_ids = mail.search(search_criteria)
+                email_ids = mail.search(search_criteria)
 
-                    # 解析响应
-                    if not email_ids:
-                        self.logger.error(f"搜索失败: 未找到当日邮件")
-                        continue
+                # 解析响应
+                if not email_ids:
+                    self.logger.warning(f"邮箱 {user} 未找到当日邮件")
+                    continue
 
-                    self.logger.info(f"找到 {len(email_ids)} 封符合条件的邮件")
+                self.logger.info(f"找到 {len(email_ids)} 封符合条件的邮件")
 
-                    # 分批次处理
-                    BATCH_SIZE = 20
-                    for idx in range(0, len(email_ids), BATCH_SIZE):
-                        batch = email_ids[idx: idx + BATCH_SIZE]
-                        self.logger.info(
-                            f"处理批次 {idx // BATCH_SIZE + 1}/{(len(email_ids) - 1) // BATCH_SIZE + 1}"
+                # 分批次处理
+                BATCH_SIZE = 20
+                for idx in range(0, len(email_ids), BATCH_SIZE):
+                    batch = email_ids[idx: idx + BATCH_SIZE]
+                    self.logger.info(
+                        f"处理批次 {idx // BATCH_SIZE + 1}/{(len(email_ids) - 1) // BATCH_SIZE + 1}"
+                    )
+
+                    for email_id in batch:
+                        total_attachments += self.download_attachments(
+                            mail, email_id, download_dir
                         )
-
-                        for email_id in batch:
-                            self.download_attachments(mail, email_id, download_dir)
-
-                finally:
+            except Exception as e:
+                # 单个邮箱处理失败不影响其他邮箱, 记日志后继续
+                self.logger.error(f"邮箱 {user} 处理异常: {e}")
+                self.logger.error("详细异常: %s", traceback.format_exc())
+            finally:
+                try:
                     mail.logout()
-        except Exception as e:
-            self.logger.error(f"主流程异常: {e}")
-            self.logger.error("详细异常: %s", traceback.format_exc())
+                except Exception:
+                    pass
+
+        if login_success == 0:
+            raise RuntimeError(
+                "所有邮箱账号均登录失败, 请检查 config/email.json 账号与口令配置"
+            )
+        self.logger.info(
+            f"邮件下载完成: 共 {login_success} 个邮箱登录成功, "
+            f"下载 {total_attachments} 个附件"
+        )

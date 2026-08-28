@@ -116,6 +116,9 @@ pdm run python main.py 20260826 today download_and_unzip   # 仅下载解压
 pdm run python main.py 20260826 today check_account        # 仅账号匹配迁移
 ```
 
+> 各步骤执行失败会明确打印原因并返回退出码 1（附件目录为空 / 全部邮箱登录失败 /
+> 无可解压文件等场景均会报错，不会静默跳过）。
+
 ## 生产打包（思路同 future_data 项目）
 
 ```bash

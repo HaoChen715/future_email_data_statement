@@ -100,6 +100,7 @@ class UnZip:
                 self.logger.info("历史解压文件清理完成")
 
         # 遍历目录, 先将文件附件全部拷贝到zip目录
+        processed_count = 0
         for root, dirs, files in os.walk(source_dir):
             for file in files:
                 if file.endswith(
@@ -108,11 +109,20 @@ class UnZip:
                     # 拷贝到拷贝目录
                     file_path = os.path.join(root, file)
                     shutil.copy(file_path, zip_file_dir)
+                    processed_count += 1
                 elif file.endswith(
                     (".xls", ".xlsx", ".txt", ".TXT", ".XLS", ".XLSX")
                 ):
                     file_path = os.path.join(root, file)
                     shutil.copy(file_path, final_dir)
+                    processed_count += 1
+
+        # 附件目录中没有任何可处理文件时直接报错, 避免"静默成功"
+        if processed_count == 0:
+            raise RuntimeError(
+                f"附件目录 {source_dir} 中没有可处理的压缩包或对账单文件, "
+                "请检查邮件下载步骤是否成功"
+            )
 
         # 解压拷贝的压缩文件
         for file in os.listdir(zip_file_dir):

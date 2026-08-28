@@ -154,6 +154,47 @@ def main() -> None:
     print(f"{'=' * 50}\n")
 
 
+def _setup_builtin_cert():
+    """【证书补丁】让 Python 优先使用程序内置的 cacert.pem，避免 SSL 证书校验失败。
+
+    思路沿用 auto_down_email 项目：打包后 PyInstaller 冻结环境的 ssl 默认 CA
+    路径是打包机编译 Python 时的系统路径，目标服务器上往往不存在，导致 IMAP
+    登录时报"没有 ssl 安全证书"。此处优先使用 pyinstall.py --add-data 复制到
+    程序根目录的 certifi cacert.pem，回退 certifi 内置证书。
+    """
+    builtin_cacert = os.path.join(os.path.dirname(sys.executable), "cacert.pem")
+
+    # PyInstaller onefile 模式：sys.executable 位于临时解压目录，
+    # 实际证书随程序解压到 sys._MEIPASS 目录
+    if not os.path.exists(builtin_cacert):
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            builtin_cacert = os.path.join(meipass, "cacert.pem")
+        else:
+            # 非 PyInstaller（源码开发），从当前工作目录查找
+            builtin_cacert = os.path.join(os.getcwd(), "cacert.pem")
+
+    if os.path.exists(builtin_cacert):
+        # 通过标准环境变量通知 Python 与 requests 使用指定 CA 证书
+        os.environ["SSL_CERT_FILE"] = builtin_cacert
+        os.environ["REQUESTS_CA_BUNDLE"] = builtin_cacert
+        print(f"✅ 已启用内置证书: {builtin_cacert}")
+    else:
+        print("⚠️ 未找到内置证书，将使用系统默认证书路径")
+        # 回退到 certifi 提供的默认证书
+        try:
+            import certifi
+
+            os.environ["SSL_CERT_FILE"] = certifi.where()
+            print(f"✅ 退回到 certifi 默认证书: {certifi.where()}")
+        except ImportError:
+            print("❌ 未找到 certifi，无法加载任何证书（如遇 SSL 错误请安装 certifi）")
+
+
+# 启动前自动注入证书配置
+_setup_builtin_cert()
+
+
 if __name__ == "__main__":
     main()
     print("程序已退出。")

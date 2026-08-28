@@ -217,7 +217,7 @@ def assemble_deploy_dir():
         print(f"❌ [失败] 未找到 PyInstaller 产物: {pyinstaller_output}")
         sys.exit(1)
 
-    # 1. PyInstaller 产物(可执行程序 + _internal 运行库 + cacert.pem)
+    # 1. PyInstaller 产物(可执行程序 + _internal 运行库)
     for item in os.listdir(pyinstaller_output):
         src_item = os.path.join(pyinstaller_output, item)
         dst_item = os.path.join(DEPLOY_DIR, item)
@@ -225,6 +225,17 @@ def assemble_deploy_dir():
             shutil.copytree(src_item, dst_item)
         else:
             shutil.copy2(src_item, dst_item)
+
+    # 1.1 certifi 证书复制到发布根目录: PyInstaller 6 的 --add-data 数据落在
+    #     _internal 内, 而 main.py _setup_builtin_cert 优先读取程序根目录的
+    #     cacert.pem(与 auto_down_email 项目一致), 此处显式补齐
+    try:
+        import certifi
+
+        shutil.copy2(certifi.where(), os.path.join(DEPLOY_DIR, "cacert.pem"))
+        print("✅ certifi cacert.pem 已复制到发布根目录")
+    except Exception as e:
+        print(f"⚠️ 未找到 certifi 或无法复制 cacert.pem: {e}")
 
     # 2. 外部 src 模块树(编译好的 .so 工具随包发布)
     copy_src_tree(DEPLOY_DIR)

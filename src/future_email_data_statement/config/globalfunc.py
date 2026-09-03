@@ -53,8 +53,10 @@ class GlobalFunc:
         self.db_user = self.config.get(db_config, "user")
         key_file_path = os.path.join(self.current_dir, "config/secret.key")
         decrpty = EncryptionTool(key_file_path)
-        self.db_password = decrpty.decrypt_message(
-            self.config.get(db_config, "password")
+        # 密码为空时跳过解密（仅读取文件目录等无需数据库的场景，如数据清洗步骤）
+        raw_password = self.config.get(db_config, "password")
+        self.db_password = (
+            decrpty.decrypt_message(raw_password) if raw_password else ""
         )
         self.db_host = self.config.get(db_config, "host")
         self.db_port = self.config.get(db_config, "port")

@@ -23,6 +23,7 @@ if BASE_DIR not in sys.path:
 
 from src.future_email_data_statement.account_match.check_file import CheckAccountFile
 from src.future_email_data_statement.common.CheckTradingDay import CheckTradingDay
+from src.future_email_data_statement.data_clean.clean_data import CleanDataFile
 from src.future_email_data_statement.email_download.email_download import Auto_DownLoad_Email
 from src.future_email_data_statement.unzip.unzip import UnZip
 
@@ -73,7 +74,7 @@ def main() -> None:
         yyyymmdd     运行日期（邮件下载日）。
         today|last   下载模式：today=下载当天邮件，last=下载上一交易日邮件。
         steps        可选步骤（可多个，默认全部执行）：
-                     download_and_unzip / check_account
+                     download_and_unzip / check_account / clean_data
     """
     if len(sys.argv) < 3:
         print("缺少参数！用法：pdm run python main.py yyyymmdd [today|last] [steps...]")
@@ -83,7 +84,7 @@ def main() -> None:
     running_day = sys.argv[1]
     is_tradingday = sys.argv[2]
     # 剩余参数为步骤列表；未指定时默认执行完整流水线
-    steps = sys.argv[3:] or ["download_and_unzip", "check_account"]
+    steps = sys.argv[3:] or ["download_and_unzip", "check_account", "clean_data"]
 
     place = load_place()
     print(
@@ -146,6 +147,31 @@ def main() -> None:
             print(f"[main] 邮件获取日 {email_download_day} 附件数据核对分类处理完毕")
         except Exception as e:
             print(f"[main] check_account 步骤执行失败: {type(e).__name__}: {e}")
+            traceback.print_exc()
+            sys.exit(1)
+
+    # ================= 3. 数据清洗环节 =================
+    if "clean_data" in steps:
+        try:
+            clean_data = CleanDataFile(
+                running_day=email_download_day, statement_type=place
+            )
+            clean_results = clean_data.clean()
+            cleaned_files = sum(
+                len(files) for files in clean_results.values()
+            )
+            if cleaned_files == 0:
+                print(
+                    f"[main] 交易日 {email_download_day} 无可清洗的对账单数据，"
+                    f"请确认账号匹配迁移已完成"
+                )
+            else:
+                print(
+                    f"[main] 邮件获取日 {email_download_day} 对账单数据清洗处理完毕，"
+                    f"共清洗 {len(clean_results)} 家券商 {cleaned_files} 个文件"
+                )
+        except Exception as e:
+            print(f"[main] clean_data 步骤执行失败: {type(e).__name__}: {e}")
             traceback.print_exc()
             sys.exit(1)
 

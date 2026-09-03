@@ -42,8 +42,10 @@ class LoggerInit:
             logger.addHandler(file_handler)
 
         # 若已有控制台处理器，则不再重复添加，避免重复输出
+        # 注意: FileHandler 是 StreamHandler 的子类, 必须用精确类型判断,
+        # 否则文件处理器会让此判断恒为 True, 控制台处理器永远不会被添加
         if not any(
-            isinstance(handler, logging.StreamHandler)
+            type(handler) is logging.StreamHandler
             for handler in logger.handlers
         ):
             # 创建控制台处理器，输出到标准输出

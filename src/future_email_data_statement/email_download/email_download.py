@@ -32,7 +32,10 @@ class Auto_DownLoad_Email:
           旧逻辑会直接跳过导致大附件永远下载不到）；
         - 标准 get_payload(decode=True) 优先，失败后按 CTE 手工解码兜底；
         - 取件时校验 RFC822.SIZE，若整封邮件被服务器截断则改用
-          BODYSTRUCTURE 逐段(BODY.PEEK[n])取件，避免大邮件整体取件失败。
+          BODYSTRUCTURE 逐段(BODY.PEEK[n])取件，避免大邮件整体取件失败；
+        - 整封解析后若存在"内容为空/解码失败"的附件或附件数量少于
+          BODYSTRUCTURE 声明值，则按文件名对缺失附件做 BODY.PEEK[n] 逐段补取
+          （由服务器切分 MIME 段，绕开客户端解析缺陷）。
 
     params:
     self.running_day: 程序运行日期
@@ -295,6 +298,25 @@ class Auto_DownLoad_Email:
             return f"{base}.gz"
         return filename
 
+    def _log_part_diagnosis(self, part, filename: str, reason: str) -> None:
+        """附件内容异常时记录 MIME 部分结构诊断信息, 便于定位券商邮件的特殊结构。"""
+        raw = part.get_payload()
+        if isinstance(raw, (bytes, str)):
+            raw_info = f"len={len(raw)} head={str(raw)[:80]!r}"
+        else:
+            raw_info = f"type={type(raw).__name__}"
+        defects = getattr(part, "defects", None) or []
+        self.logger.warning(
+            f"附件异常诊断[{reason}]: {filename} | "
+            f"type={part.get_content_type()} "
+            f"maintype={part.get_content_maintype()} "
+            f"cte={part.get('Content-Transfer-Encoding')!r} "
+            f"disp={part.get_content_disposition()!r} "
+            f"is_multipart={part.is_multipart()} "
+            f"raw_payload[{raw_info}] "
+            f"defects={[d.__class__.__name__ for d in defects]}"
+        )
+
     def _write_attachment(self, payload: bytes, filename: str, download_dir: str) -> bool:
         """将附件内容写入下载目录，返回是否成功。"""
         # 防止邮件中的文件名携带路径穿越字符
@@ -427,13 +449,24 @@ class Auto_DownLoad_Email:
             return True
         return False
 
-    def extract_attachments(self, msg, download_dir: str) -> int:
+    def extract_attachments(
+        self,
+        msg,
+        download_dir: str,
+        saved_names: list = None,
+        failed_names: list = None,
+        skip_names: set = None,
+    ) -> int:
         """
         解析整封邮件并下载全部附件。
 
         Args:
             msg: 已解析的邮件对象。
             download_dir (str): 附件落盘目录。
+            saved_names (list): 可选, 收集成功保存的附件原始文件名。
+            failed_names (list): 可选, 收集内容为空/解码失败的附件原始文件名。
+            skip_names (set): 可选, 已成功保存的文件名集合, 命中则跳过写入
+                （用于 BODYSTRUCTURE 补取时避免重复落盘）。
 
         Returns:
             int: 成功保存的附件数量。
@@ -450,17 +483,34 @@ class Auto_DownLoad_Email:
                 filename = part.get_filename()
                 if filename:
                     filename = self.decode_mime_words(filename)
-                    payload = self._get_part_payload(part)
-                    if payload is not None:
-                        if self._write_attachment(payload, filename, download_dir):
+                    if skip_names and filename in skip_names:
+                        pass
+                    else:
+                        payload = self._get_part_payload(part)
+                        if payload is None:
+                            self._log_part_diagnosis(part, filename, "rfc822解码失败")
+                            if failed_names is not None:
+                                failed_names.append(filename)
+                        elif not payload:
+                            self._log_part_diagnosis(part, filename, "rfc822内容为空")
+                            if failed_names is not None:
+                                failed_names.append(filename)
+                            self._write_attachment(payload, filename, download_dir)
+                        elif self._write_attachment(payload, filename, download_dir):
                             total += 1
+                            if saved_names is not None:
+                                saved_names.append(filename)
+                        elif failed_names is not None:
+                            failed_names.append(filename)
                 # walk() 能下钻正常解析的内嵌邮件; 仅当 CTE 编码未被解析器解码时
                 # 才需手动解码后递归提取(避免重复提取)
                 if self._embedded_is_encoded(part):
                     try:
                         inner = self._get_embedded_message(part)
                         if inner is not None and hasattr(inner, "walk"):
-                            total += self.extract_attachments(inner, download_dir)
+                            total += self.extract_attachments(
+                                inner, download_dir, saved_names, failed_names, skip_names
+                            )
                     except Exception:
                         pass
                 continue
@@ -473,16 +523,33 @@ class Auto_DownLoad_Email:
                 nameless_idx += 1
                 filename = f"attachment_{nameless_idx}.bin"
             filename = self.decode_mime_words(filename)
+            if skip_names and filename in skip_names:
+                continue
             payload = self._get_part_payload(part)
             if payload is None:
+                self._log_part_diagnosis(part, filename, "解码失败")
                 self.logger.error(f"附件内容解码失败: {filename}")
+                if failed_names is not None:
+                    failed_names.append(filename)
+                continue
+            if not payload:
+                self._log_part_diagnosis(part, filename, "内容为空")
+                if failed_names is not None:
+                    failed_names.append(filename)
+                self._write_attachment(payload, filename, download_dir)
                 continue
             if self._write_attachment(payload, filename, download_dir):
                 total += 1
+                if saved_names is not None:
+                    saved_names.append(filename)
+            elif failed_names is not None:
+                failed_names.append(filename)
 
         # message/partial 分片重组后递归提取内层附件
         for rebuilt in self._reassemble_partials(msg):
-            total += self.extract_attachments(rebuilt, download_dir)
+            total += self.extract_attachments(
+                rebuilt, download_dir, saved_names, failed_names, skip_names
+            )
         return total
 
     # ============================================================
@@ -559,13 +626,26 @@ class Auto_DownLoad_Email:
             return self._manual_qp_decode(body)
         return body
 
-    def _download_via_bodystructure(self, mail, email_id, bs_data, download_dir: str) -> int:
+    def _download_via_bodystructure(
+        self,
+        mail,
+        email_id,
+        bs_data,
+        download_dir: str,
+        skip_names: set = None,
+        saved_names: list = None,
+        failed_names: list = None,
+    ) -> int:
         """
         逐段取件下载：遍历 BODYSTRUCTURE 找到全部附件叶子，
         逐个用 BODY.PEEK[n] 取回内容并落盘；message/partial 分片同样逐段取回后重组。
 
         用于整封邮件 BODY[] 取回被服务器截断/解析异常的兜底场景，
         每一段的取回数据量小，避开服务器对大邮件整体取件的限制。
+
+        Args:
+            skip_names (set): 已成功保存的文件名集合, 命中则不再重复取回/落盘。
+            saved_names/failed_names: 可选, 收集本次补取的结果。
 
         Returns:
             int: 成功保存的附件数量。
@@ -610,13 +690,26 @@ class Auto_DownLoad_Email:
 
         total = 0
         for part_number, filename, cte in attachments:
+            decoded_name = self.decode_mime_words(filename)
+            if skip_names and decoded_name in skip_names:
+                continue
             payload = self._fetch_part_body(mail, email_id, part_number, cte)
             if payload is None:
-                self.logger.error(f"逐段取件失败: 段 {part_number} (文件名 {filename!r})")
+                self.logger.error(f"逐段取件失败: 段 {part_number} (文件名 {decoded_name!r})")
+                if failed_names is not None:
+                    failed_names.append(decoded_name)
                 continue
-            decoded_name = self.decode_mime_words(filename)
+            if not payload:
+                self.logger.warning(f"逐段取件内容为空: 段 {part_number} (文件名 {decoded_name!r})")
+                if failed_names is not None:
+                    failed_names.append(decoded_name)
+                continue
             if self._write_attachment(payload, decoded_name, download_dir):
                 total += 1
+                if saved_names is not None:
+                    saved_names.append(decoded_name)
+            elif failed_names is not None:
+                failed_names.append(decoded_name)
 
         # message/rfc822 内嵌邮件: 取回原始内容后递归提取其中的附件
         for part_number, cte in rfc822_parts:
@@ -626,7 +719,9 @@ class Auto_DownLoad_Email:
                 continue
             try:
                 inner_msg = email.message_from_bytes(raw, policy=policy.default)
-                total += self.extract_attachments(inner_msg, download_dir)
+                total += self.extract_attachments(
+                    inner_msg, download_dir, saved_names, failed_names, skip_names
+                )
                 self.logger.info(f"逐段取件: 内嵌邮件段 {part_number} 附件提取完成")
             except Exception as e:
                 self.logger.error(f"逐段取件: 内嵌邮件段 {part_number} 解析失败: {e}")
@@ -652,7 +747,9 @@ class Auto_DownLoad_Email:
                 continue
             try:
                 rebuilt = email.message_from_bytes(data, policy=policy.default)
-                total += self.extract_attachments(rebuilt, download_dir)
+                total += self.extract_attachments(
+                    rebuilt, download_dir, saved_names, failed_names, skip_names
+                )
                 self.logger.info(f"逐段取件: message/partial 重组成功(id={pid})")
             except Exception as e:
                 self.logger.error(f"逐段取件: message/partial 重组失败(id={pid}): {e}")
@@ -790,14 +887,33 @@ class Auto_DownLoad_Email:
 
             msg = email.message_from_bytes(raw_email, policy=policy.default)
 
-            total = self.extract_attachments(msg, download_dir)
+            saved_names, failed_names = [], []
+            total = self.extract_attachments(msg, download_dir, saved_names, failed_names)
+            bs_count = self._bs_attachment_count(bs_data)
 
-            # 兜底：整封解析无附件，但 BODYSTRUCTURE 显示存在附件
-            if total == 0 and self._bs_attachment_count(bs_data) > 0:
-                self.logger.warning("整封解析未得到附件，改用 BODYSTRUCTURE 逐段取件兜底")
-                total = self._download_via_bodystructure(
-                    mail, email_id, bs_data, download_dir
-                )
+            # 兜底：整封解析存在缺失（内容为空/解码失败/数量少于 BODYSTRUCTURE 声明），
+            # 由服务器按 BODY.PEEK[n] 切段补取缺失附件, 绕开客户端 MIME 解析缺陷
+            need_refetch = (
+                bool(failed_names)
+                or (bs_data is not None and bs_count > 0 and total < bs_count)
+            )
+            if need_refetch:
+                if bs_data is None:
+                    self.logger.error(
+                        f"整封解析缺失 {failed_names or total} 个附件, "
+                        "但未取到 BODYSTRUCTURE, 无法逐段补取"
+                    )
+                else:
+                    self.logger.warning(
+                        f"整封解析存在缺失附件(成功 {total} 个, BODYSTRUCTURE 声明 {bs_count} 个, "
+                        f"异常 {failed_names}), 改用 BODYSTRUCTURE 逐段补取"
+                    )
+                    # 已成功保存的文件名不再重复取回; 既成功又失败的同名附件重新取回
+                    skip_names = set(saved_names) - set(failed_names)
+                    total += self._download_via_bodystructure(
+                        mail, email_id, bs_data, download_dir,
+                        skip_names=skip_names, saved_names=saved_names, failed_names=failed_names,
+                    )
 
             self.logger.info(f"邮件处理完成，共下载 {total} 个附件")
             return total

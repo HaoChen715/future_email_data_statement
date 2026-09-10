@@ -22,7 +22,7 @@ class CheckAccountFile:
     账号匹配与文件迁移模块（思路沿用 auto_down_email 项目）。
 
     账号信息来源为 future_data 项目的数据库视图 v_config_bill_future_account
-    （字段：future_account_id / broker / start_date / end_date 等）。
+    （字段：future_account_id / broker_id / start_date / end_date 等）。
     匹配逻辑：先按文件名拆分出的连续数字组合精确匹配资金账号，再按文件内容
     （前20行）匹配；匹配成功后迁移到 resource/{broker}/{交易日}/ 并备份到历史目录。
     """
@@ -56,7 +56,7 @@ class CheckAccountFile:
         查询数据库中当日有效的期货账号配置（视图 v_config_bill_future_account）。
 
         Returns:
-            pd.DataFrame: 含 future_account_id / broker 等字段的账号配置。
+            pd.DataFrame: 含 future_account_id / broker_id 等字段的账号配置。
         """
         with self.engine.connect() as conn:
             result = conn.execute(self.select_sql)
@@ -171,7 +171,7 @@ class CheckAccountFile:
                 ~account_info["remark"].astype(str).str.contains("销户")
             ].reset_index(drop=True)
         account_broker_dict = dict(
-            zip(account_info["future_account_id"], account_info["broker"])
+            zip(account_info["future_account_id"], account_info["broker_id"])
         )
 
         source_dir = os.path.join(self.final_file_dir, self.running_day)

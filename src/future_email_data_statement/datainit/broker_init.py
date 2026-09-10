@@ -48,14 +48,16 @@ class BrokerInit:
 
     def broker_init(self):
         """按数据库券商列表预建资源目录，并将新增券商目录写入初始化记录文件。"""
-        select_sql = text("SELECT DISTINCT broker FROM v_config_bill_future_account")
+        select_sql = text(
+            "SELECT DISTINCT broker_id FROM v_config_bill_future_account"
+        )
         with self.engine.connect() as connection:
             result = connection.execute(select_sql)
             broker_df = pd.DataFrame(
                 result.fetchall(), columns=result.keys()
             )
         broker_list = (
-            broker_df["broker"].dropna().astype(str).unique().tolist()
+            broker_df["broker_id"].dropna().astype(str).unique().tolist()
         )
         self.logger.info(f"当前券商列表: {broker_list}")
 

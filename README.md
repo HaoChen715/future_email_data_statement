@@ -56,6 +56,7 @@ src/future_email_data_statement/
     get_parent_path.py                项目根目录定位（兼容 .py 源码 / .so 生产部署）
     logger_init.py                    日志初始化
     CheckTradingDay.py                交易日判断（SSE 日历）
+    statement_type.py                 对账单类型判断（期货/期权/证券现货，文件名前缀+内容特征）
     generate_key.py / generate_password.py  密钥与密文生成工具
   config/
     globalfunc.py                     配置读取与数据库连接（Place 环境切换）
@@ -154,12 +155,15 @@ pdm run python pyinstall.py
 ## 数据清洗（阶段④）
 
 - 当前支持券商：**国君**（国泰君安期货 交易结算单 txt，GBK 编码邮件附件）。
+- 对账单类型判断（common/statement_type.py）：**文件内容特征优先**（盯市标题 MTM /
+  资金状况互斥字段），**文件名资金账号前缀兜底**（95=证券现货 / 99=期权 / 其余=期货），
+  清洗后 `基本资料.statement_type` 细分为 盯市 / 期权 / 证券现货。
 - 只读取、不动原始文件：逐文件清洗为内置 DataFrame，以 `{文件名: data_frames_json}` 返回，
   供后续按数据库字段做列名转换与入库。
 - 单个文件清洗后分化成多个 DataFrame（`data_frames_json`）：
   - `基本资料`：交易日 / 资金账号 / 客户号 / 客户名称 / 券商 / 对账单类型（盯市/期权/证券现货）/ 制表日期 / 文件名；
   - `资金状况`：键值对标准化为单行宽表（英文列名，覆盖盯市/期权/证券现货三种格式）；
-  - `出入金明细` / `成交记录` / `平仓明细` / `持仓明细` / `持仓汇总` / `持仓变动`：| 分隔表格按中文表头清洗为 DataFrame（汇总行已剔除，表内缺失资金账号列时自动补充）。
+  - `出入金明细` / `成交记录` / `平仓明细` / `持仓明细` / `持仓汇总` / `持仓变动` / `行权明细` / `组合持仓`：| 分隔表格按中文表头清洗为 DataFrame（汇总行已剔除，表内缺失资金账号列时自动补充）。
 - 新增券商时：在 `data_clean/tools/` 下实现继承 `Statement` 的清洗类，并在 `datastatement.py` 的 `BROKER_IMPORT_MAP` 注册中文券商名即可。
 
 ## 日志
@@ -181,7 +185,8 @@ pdm run python pyinstall.py
 ## 数据库表（依赖）
 
 - 账号配置视图：`v_config_bill_future_account`（使用字段：future_account_id / broker / start_date / end_date / remark 等）
+- 对账单数据表建表 SQL 见 [docs/数据库表结构设计.md](docs/数据库表结构设计.md) / [docs/create_tables.sql](docs/create_tables.sql)
 
 ## 待完成
 
-- 数据入库（bill_* 数据表）与 `bill_processing_log` 断点续跑机制
+- 数据入库（bill_future_settle_* 数据表）与 `bill_future_settle_processing_log` 断点续跑机制

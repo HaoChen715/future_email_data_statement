@@ -4,6 +4,9 @@ import traceback
 
 import pandas as pd
 
+from src.future_email_data_statement.common.statement_type import (
+    detect_statement_type,
+)
 from .statement import Statement
 
 
@@ -27,10 +30,10 @@ class GuoJun(Statement):
     CAPITAL_FIELD_MAP = {
         "期初结存": "last_day_balance",
         "期末结存": "balance",
-        "客户权益": "cust_equity",
+        "客户权益": "customer_equity",
         "出入金": "deposit_withdrawal",
         "手续费": "commission",
-        "维持保证金": "smargin",
+        "维持保证金": "maintenance_margin",
         "权利金收入": "premium_received",
         "权利金支出": "premium_paid",
         "可用资金": "available_funds",
@@ -41,35 +44,35 @@ class GuoJun(Statement):
         "市值权益": "market_value_equity",
         "风险度": "risk",
         "执行冻结资金": "strike_frozen_sum",
-        "执行实收资金": "strike_rec_able",
-        "执行实付资金": "strike_pay_able",
-        "现金替代实收资金": "rec_sum_by_cash",
-        "现金替代实付资金": "pay_sum_by_cash",
+        "执行实收资金": "strike_receivable",
+        "执行实付资金": "strike_payable",
+        "现金替代实收资金": "received_sum_by_cash",
+        "现金替代实付资金": "paid_sum_by_cash",
         "平仓盈亏": "closing_profit_loss",
         "持仓盯市盈亏": "floating_profit_loss",
         "期权执行盈亏": "option_exercise_profit_loss",
         "交割盈亏": "delivery_profit_loss",
         "质押金": "pledge_amount",
-        "货币质押保证金占用": "fx_pledge_occ",
+        "货币质押保证金占用": "fx_pledge_occupancy",
         "保证金占用": "margin_occupancy",
         "交割保证金": "delivery_margin",
         "多头期权市值": "long_option_market_value",
         "空头期权市值": "short_option_market_value",
         "货币质入": "new_fx_pledge",
         "货币质出": "fx_redemption",
-        "质押变化金额": "chg_in_pledge_amt",
-        "货币质押变化金额": "chg_in_fx_pledge",
-        "期初总资产": "total_assets_bf",
-        "期末总资产": "total_assets_cf",
-        "期初资金余额": "fund_balance_bf",
-        "期末资金余额": "fund_balance_cf",
+        "质押变化金额": "change_in_pledge_amount",
+        "货币质押变化金额": "change_in_fx_pledge",
+        "期初总资产": "total_assets_brought_forward",
+        "期末总资产": "total_assets_carried_forward",
+        "期初资金余额": "fund_balance_brought_forward",
+        "期末资金余额": "fund_balance_carried_forward",
         "股票市值": "stock_market_value",
-        "开仓准备金": "open_prepa",
+        "开仓准备金": "open_preparation",
         "可提资金": "fund_withdrawal",
         "冻结资金": "fund_frozen",
         "利息": "interest",
-        "买券金额": "b_sec_payment",
-        "卖券金额": "s_sec_income",
+        "买券金额": "buy_security_payment",
+        "卖券金额": "sell_security_income",
         "实际收付": "actual_payment",
         "红利": "bonus",
     }
@@ -78,10 +81,10 @@ class GuoJun(Statement):
     CAPITAL_COLUMNS = (
         "last_day_balance",
         "balance",
-        "cust_equity",
+        "customer_equity",
         "deposit_withdrawal",
         "commission",
-        "smargin",
+        "maintenance_margin",
         "premium_received",
         "premium_paid",
         "available_funds",
@@ -92,33 +95,33 @@ class GuoJun(Statement):
         "market_value_equity",
         "risk",
         "strike_frozen_sum",
-        "strike_rec_able",
-        "strike_pay_able",
-        "rec_sum_by_cash",
-        "pay_sum_by_cash",
+        "strike_receivable",
+        "strike_payable",
+        "received_sum_by_cash",
+        "paid_sum_by_cash",
         "closing_profit_loss",
         "floating_profit_loss",
         "option_exercise_profit_loss",
         "delivery_profit_loss",
         "pledge_amount",
-        "fx_pledge_occ",
+        "fx_pledge_occupancy",
         "margin_occupancy",
         "delivery_margin",
         "new_fx_pledge",
         "fx_redemption",
-        "chg_in_pledge_amt",
-        "chg_in_fx_pledge",
-        "total_assets_bf",
-        "total_assets_cf",
-        "fund_balance_bf",
-        "fund_balance_cf",
+        "change_in_pledge_amount",
+        "change_in_fx_pledge",
+        "total_assets_brought_forward",
+        "total_assets_carried_forward",
+        "fund_balance_brought_forward",
+        "fund_balance_carried_forward",
         "stock_market_value",
-        "open_prepa",
+        "open_preparation",
         "fund_withdrawal",
         "fund_frozen",
         "interest",
-        "b_sec_payment",
-        "s_sec_income",
+        "buy_security_payment",
+        "sell_security_income",
         "actual_payment",
         "bonus",
     )
@@ -178,15 +181,33 @@ class GuoJun(Statement):
         }
 
     def _check_statement_type(
-        self, statement_type: str, capital: dict
+        self,
+        lines: list,
+        statement_type: str,
+        account_id: str = None,
+        file_name: str = None,
     ) -> str:
-        """根据资金状况字段细分对账单类型（盯市/期权/证券现货）。"""
-        if statement_type == "盯市":
-            return statement_type
-        if "维持保证金" in capital:
-            return "期权"
-        if "期初总资产" in capital:
-            return "证券现货"
+        """根据文件内容与账号前缀细分对账单类型（盯市/期权/证券现货）。
+
+        判断逻辑封装在 common/statement_type.py：内容特征（资金状况字段
+        互斥）优先，文件名资金账号前缀（95=证券现货 / 99=期权）兜底，
+        内容无法判定时保留标题解析出的原始类型。
+
+        Args:
+            lines: 文件行列表。
+            statement_type: 标题解析出的原始类型（盯市/标准）。
+            account_id: 资金账号（前缀兜底规则）。
+            file_name: 文件名（账号提取兜底）。
+
+        Returns:
+            str: 盯市 / 期权 / 证券现货（未判定时返回原始类型）。
+        """
+        detected = detect_statement_type(
+            lines=lines, account_id=account_id, file_name=file_name
+        )
+        category = detected["category"]
+        if category:
+            return detected["format"]
         return statement_type
 
     # ---------------- 数据清洗 ---------------- #
@@ -209,7 +230,10 @@ class GuoJun(Statement):
             # 2. 资金状况（键值对 -> 标准英文列名单行表）
             capital = self.parse_capital(lines=lines)
             basic["statement_type"] = self._check_statement_type(
-                basic["statement_type"], capital
+                lines=lines,
+                statement_type=basic["statement_type"],
+                account_id=basic["account_id"],
+                file_name=file_name,
             )
             data_frames_json["基本资料"] = pd.DataFrame([basic])
             capital_row = {"statement_type": basic["statement_type"]}

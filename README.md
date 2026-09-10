@@ -17,10 +17,11 @@
 
 | 阶段 | 模块 | 职责 |
 |------|------|------|
-| ① 下载 | `Auto_DownLoad_Email`（email_download/email_download.py） | 登录 IMAP 邮箱、按日期搜索并下载当日全部附件 |
-| ② 解压 | `UnZip`（unzip/unzip.py） | 压缩包（zip/rar）解压、直接文件拷贝到最终文件目录 |
-| ③ 匹配迁移 | `CheckAccountFile`（account_match/check_file.py） | 按数据库视图中的资金账号匹配文件，迁移到 `resource/{券商}/{交易日}/` 并备份历史目录 |
-| ④ 数据清洗 | `CleanDataFile`（data_clean/clean_data.py） | 逐文件读取 `resource/{券商}/{交易日}/` 下的对账单，清洗为多个内置 DataFrame（不动原始文件） |
+| ① 启动初始化 | `BrokerInit`（datainit/broker_init.py） | 启动时按数据库视图中的券商列表预建 `resource/{券商}/` 目录，并生成环境专属的 `config/datapath_init_{Place}.json`（思路沿用 auto_down_email 项目） |
+| ② 下载 | `Auto_DownLoad_Email`（email_download/email_download.py） | 登录 IMAP 邮箱、按日期搜索并下载当日全部附件 |
+| ③ 解压 | `UnZip`（unzip/unzip.py） | 压缩包（zip/rar）解压、直接文件拷贝到最终文件目录 |
+| ④ 匹配迁移 | `CheckAccountFile`（account_match/check_file.py） | 按数据库视图中的资金账号匹配文件，迁移到 `resource/{券商}/{交易日}/` 并备份历史目录 |
+| ⑤ 数据清洗 | `CleanDataFile`（data_clean/clean_data.py） | 逐文件读取 `resource/{券商}/{交易日}/` 下的对账单，清洗为多个内置 DataFrame（不动原始文件） |
 
 - 支持**生产 / 测试环境隔离**：由 `config/info.ini` 的 `[RunParams] Place` 参数统一切换数据库连接与全部文件落盘目录。
 - 处理日期与执行步骤**通过命令行参数控制**（`main.py yyyymmdd [today|last] [steps...]`，风格沿用 auto_down_email 项目）：`today`=下载当天邮件，`last`=下载上一交易日邮件。
@@ -31,10 +32,11 @@
 
 1. `main.py` 读取命令行参数（yyyymmdd / today|last / steps）与 `config/info.ini [RunParams]`（Place）；
 2. 根据运行日计算上一交易日，确定邮件下载日（last 模式取上一交易日）；
-3. 按步骤执行：
+3. **启动初始化**：按数据库券商列表预建 `resource/{券商}/` 目录（记录到 `config/datapath_init_{Place}.json`）；
+4. 按步骤执行：
    - **邮件下载**：登录 `config/email.json` 中配置的全部邮箱，搜索当日邮件并下载附件到 `email_download_root/{交易日}/`；
    - **解压**：压缩包解压、直接文件拷贝到 `unzip_final_root/{交易日}/`，异常压缩包移入 `unzip_question_root/`；
-   - **账号匹配**：查询视图 `v_config_bill_future_account`（当日有效账号），先按文件名匹配资金账号，未命中再按文件内容（前 20 行）匹配；命中后迁移到 `resource_root/{broker}/{交易日}/`；
+   - **账号匹配**：查询视图 `v_config_bill_future_account`（当日有效账号），先将文件名按正则拆分为连续数字组合，账号完全等于其中某个数字组即判定为该账号文件，未命中再按文件内容（前 20 行）匹配；命中后迁移到 `resource_root/{broker}/{交易日}/`；
    - **数据清洗**：按券商加载对应清洗类，将 `resource_root/{broker}/{交易日}/` 下的对账单逐文件读取、清洗为多个内置 DataFrame，供后续按数据库字段做列名转换与入库。
 
 ## 目录结构

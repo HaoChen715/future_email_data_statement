@@ -1,5 +1,6 @@
 import asyncio
 import os
+import re
 import shutil
 import warnings
 
@@ -22,8 +23,8 @@ class CheckAccountFile:
 
     账号信息来源为 future_data 项目的数据库视图 v_config_bill_future_account
     （字段：future_account_id / broker / start_date / end_date 等）。
-    匹配逻辑：先按文件名包含资金账号匹配，再按文件内容（前20行）匹配；
-    匹配成功后迁移到 resource/{broker}/{交易日}/ 并备份到历史目录。
+    匹配逻辑：先按文件名拆分出的连续数字组合精确匹配资金账号，再按文件内容
+    （前20行）匹配；匹配成功后迁移到 resource/{broker}/{交易日}/ 并备份到历史目录。
     """
 
     def __init__(self, running_day: str, statement_type: str = "Trade"):
@@ -76,6 +77,22 @@ class CheckAccountFile:
             print("源文件地址出错: %s", e)
             files = []
         return files
+
+    def account_in_file_name(self, file_name: str, account_id: str) -> bool:
+        """按正则拆分文件名，连续数字组成一个整体；账号完全等于其中某个数字组即判定匹配。
+
+        例：文件名 20260825_7070_9980029659_交易结算单.txt 拆分为
+        [20260825, 7070, 9980029659]，账号 9980029659 完全命中即匹配。
+
+        Args:
+            file_name: 文件名。
+            account_id: 资金账号。
+
+        Returns:
+            bool: 账号是否完全等于文件名中的某个连续数字组。
+        """
+        digit_groups = re.findall(r"\d+", file_name)
+        return str(account_id) in digit_groups
 
     async def search_string_in_files(
         self, file_path: str, file_name: str, bill_accountid: str
@@ -171,8 +188,8 @@ class CheckAccountFile:
                 if not os.path.isfile(file_path):
                     continue
 
-                # 第一步：文件名直接包含资金账号
-                if str(account_id) in str(file_name):
+                # 第一步：文件名按连续数字组精确匹配资金账号
+                if self.account_in_file_name(file_name, str(account_id)):
                     matched = True
                     self.logger.info(
                         f"成功匹配到资金账号：{account_id} 所属文件（文件名匹配）"

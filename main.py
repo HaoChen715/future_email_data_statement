@@ -24,6 +24,7 @@ if BASE_DIR not in sys.path:
 from src.future_email_data_statement.account_match.check_file import CheckAccountFile
 from src.future_email_data_statement.common.CheckTradingDay import CheckTradingDay
 from src.future_email_data_statement.data_clean.clean_data import CleanDataFile
+from src.future_email_data_statement.datainit.broker_init import BrokerInit
 from src.future_email_data_statement.email_download.email_download import Auto_DownLoad_Email
 from src.future_email_data_statement.unzip.unzip import UnZip
 
@@ -103,6 +104,19 @@ def main() -> None:
     else:
         email_download_day = running_day
         print(f"[main] 模式 [today]：下载当天 {email_download_day} 的邮件")
+
+    # ================= 0. 启动初始化：券商目录结构 =================
+    # 按数据库券商列表预建 resource/{broker} 目录，并生成环境专属的
+    # config/datapath_init_{Place}.json（思路沿用 auto_down_email 项目）
+    try:
+        broker_init = BrokerInit(
+            init_date=email_download_day, statement_type=place
+        )
+        broker_init.broker_init()
+    except Exception as e:
+        print(f"[main] 券商目录初始化失败: {type(e).__name__}: {e}")
+        traceback.print_exc()
+        sys.exit(1)
 
     # ================= 1. 下载与解压环节 =================
     if "download_and_unzip" in steps:

@@ -12,8 +12,10 @@ class DataStatement(Statement):
     """
 
     # 券商中文名 -> (模块文件名, 类名) 映射
+    # 国君与国泰海通实际为同一家，共用国君清洗模板，仅 broker 取值不同
     BROKER_IMPORT_MAP = {
         "国君": ("guojun", "GuoJun"),
+        "国泰海通": ("guojun", "GuoJun"),
     }
 
     def __init__(
@@ -70,5 +72,7 @@ class DataStatement(Statement):
             self.statement_day,
             self.resource_data_path,
         )
+        # 覆盖类属性默认券商名（如 国泰海通 复用国君模板时，基本资料需记录实际券商）
+        statement_object.broker = self.broker
         self.logger.info(f"当前清洗券商: {self.broker}")
         return statement_object

@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS bill_future_settle_basic_info (
     client_id       VARCHAR(32)     DEFAULT NULL            COMMENT '客户号 Client ID',
     client_name     VARCHAR(128)    DEFAULT NULL            COMMENT '客户名称 Client Name',
     broker          VARCHAR(32)     NOT NULL                COMMENT '券商（国君）',
-    statement_type  VARCHAR(16)     NOT NULL                COMMENT '对账单类型：盯市/期权/证券现货',
+    statement_type  VARCHAR(16)     NOT NULL                COMMENT '对账单类型：期货/期权/证券现货（盯市入库归一为期货）',
     creation_date   CHAR(8)         DEFAULT NULL            COMMENT '制表日期 Creation Date',
     file_name       VARCHAR(255)    DEFAULT NULL            COMMENT '源文件名',
     insert_time     TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '入库时间',
@@ -29,14 +29,14 @@ CREATE TABLE IF NOT EXISTS bill_future_settle_basic_info (
   COMMENT='期货对账单-基本资料表（国君）';
 
 -- ---------------------------------------------------------------------
--- 2. 资金状况（盯市/期权/证券现货 三格式统一宽表）
+-- 2. 资金状况（期货/期权/证券现货 三格式统一宽表，盯市入库归一为期货）
 --    仅 statement_type 对应格式的字段有值，其余为 NULL
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS bill_future_settle_capital_info (
     id                              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '自增主键',
     tradingday                      CHAR(8)         NOT NULL                COMMENT '交易日 Date',
     account_id                      VARCHAR(32)     NOT NULL                COMMENT '资金账号',
-    statement_type                  VARCHAR(16)     NOT NULL                COMMENT '对账单类型：盯市/期权/证券现货',
+    statement_type                  VARCHAR(16)     NOT NULL                COMMENT '对账单类型：期货/期权/证券现货（盯市入库归一为期货）',
     -- 期权 / 期货 公共字段
     last_day_balance                DECIMAL(20,2)   DEFAULT NULL COMMENT '期初结存 Balance B/F',
     balance                         DECIMAL(20,2)   DEFAULT NULL COMMENT '期末结存 Balance C/F',
@@ -91,7 +91,7 @@ CREATE TABLE IF NOT EXISTS bill_future_settle_capital_info (
     UNIQUE KEY uk_tradingday_account (tradingday, account_id),
     KEY idx_account_id (account_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
-  COMMENT='期货对账单-资金状况表（国君，盯市/期权/证券现货统一宽表）';
+  COMMENT='期货对账单-资金状况表（国君，期货/期权/证券现货统一宽表）';
 
 -- ---------------------------------------------------------------------
 -- 3. 出入金明细（期货；证券现货有该块时结构待样本确认）

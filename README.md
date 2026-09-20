@@ -22,6 +22,7 @@
 | ③ 解压 | `UnZip`（unzip/unzip.py） | 压缩包（zip/rar）解压、直接文件拷贝到最终文件目录 |
 | ④ 匹配迁移 | `CheckAccountFile`（account_match/check_file.py） | 按数据库视图中的资金账号匹配文件，迁移到 `resource/{券商}/{交易日}/` 并备份历史目录 |
 | ⑤ 数据清洗 | `CleanDataFile`（data_clean/clean_data.py） | 逐文件读取 `resource/{券商}/{交易日}/` 下的对账单，清洗为多个内置 DataFrame（不动原始文件） |
+| ⑥ 清洗入库 | `InsertDataFile`（data_insert/insert_data.py） | 内部完成清洗后，按券商模板映射为数据库表，整文件事务「先删后插」，写 `bill_future_settle_processing_log`，支持断点续跑 |
 
 - 支持**生产 / 测试环境隔离**：由 `config/info.ini` 的 `[RunParams] Place` 参数统一切换数据库连接与全部文件落盘目录。
 - 处理日期与执行步骤**通过命令行参数控制**（`main.py yyyymmdd [today|last] [steps...]`，风格沿用 auto_down_email 项目）：`today`=下载当天邮件，`last`=下载上一交易日邮件。
@@ -37,7 +38,8 @@
    - **邮件下载**：登录 `config/email.json` 中配置的全部邮箱，搜索当日邮件并下载附件到 `email_download_root/{交易日}/`；
    - **解压**：压缩包解压、直接文件拷贝到 `unzip_final_root/{交易日}/`，异常压缩包移入 `unzip_question_root/`；
    - **账号匹配**：查询视图 `v_config_bill_future_account`（当日有效账号），先将文件名按正则拆分为连续数字组合，账号完全等于其中某个数字组即判定为该账号文件，未命中再按文件内容（前 20 行）匹配；命中后迁移到 `resource_root/{broker}/{交易日}/`；
-   - **数据清洗**：按券商加载对应清洗类，将 `resource_root/{broker}/{交易日}/` 下的对账单逐文件读取、清洗为多个内置 DataFrame，供后续按数据库字段做列名转换与入库。
+   - **数据清洗**：按券商加载对应清洗类，将 `resource_root/{broker}/{交易日}/` 下的对账单逐文件读取、清洗为多个内置 DataFrame，供后续按数据库字段做列名转换与入库；
+   - **清洗入库**：内部先执行清洗，再按「券商模板 + 对账单类型 + 板块」映射到 `bill_future_settle_*` 表；以文件为一个事务，按每张表自身 `(tradingday, account_id)` 先删后插，成功后写处理日志。每次运行先清理当日 **Failed** 日志（失败账号重试），默认跳过当日已成功账号；需要**删除重新入库**时用 `--force`（或 `[RunParams] Force_redownload=True`）忽略成功日志全部重跑。`国君` 与 `国泰海通` 共用同一清洗模板，`broker` 列写实际券商名。
 
 ## 目录结构
 
@@ -121,14 +123,17 @@ pdm run python -m src.future_email_data_statement.common.generate_key
 pdm run python -m src.future_email_data_statement.common.generate_password <明文>
 
 # 运行（参数风格沿用 auto_down_email 项目）
-# yyyymmdd 为运行日期, today|last 为下载模式, 步骤可选(默认全部执行)
-pdm run python main.py 20260826 today                 # 下载当天邮件 → 解压 → 账号匹配 → 数据清洗
-pdm run python main.py 20260826 last                  # 下载上一交易日邮件 → 解压 → 账号匹配 → 数据清洗
+# yyyymmdd 为运行日期, today|last 为下载模式, 步骤可选
+# 默认: download_and_unzip → check_account → insert_data(清洗+入库)
+pdm run python main.py 20260826 today                # 下载 → 解压 → 账号匹配 → 清洗入库
+pdm run python main.py 20260826 last                 # 同上, 下载上一交易日邮件
 pdm run python main.py 20260826 today download_and_unzip   # 仅下载解压
 pdm run python main.py 20260826 today check_account        # 仅账号匹配迁移
-pdm run python main.py 20260826 today clean_data           # 仅数据清洗
-pdm run python main.py 20260826 today 国君                 # 仅处理指定券商(国君): 跳过邮件下载, 仅校验清洗该券商
-pdm run python main.py 20260826 today check_account 国君   # 指定步骤 + 指定券商
+pdm run python main.py 20260826 today clean_data           # 仅清洗(查看结果, 不入库)
+pdm run python main.py 20260826 today insert_data          # 仅清洗入库(默认跳过已成功账号)
+pdm run python main.py 20260826 today insert_data 国君 --force  # 强制重新入库(忽略已成功日志)
+pdm run python main.py 20260826 today 国君                 # 仅处理指定券商(国君): 跳过邮件下载, 走默认步骤
+pdm run python main.py 20260826 today insert_data 国君     # 指定步骤 + 指定券商
 ```
 
 > 各步骤执行失败会明确打印原因并返回退出码 1（附件目录为空 / 全部邮箱登录失败 /
@@ -158,15 +163,16 @@ pdm run python pyinstall.py
 
 ## 数据清洗（阶段④）
 
-- 当前支持券商：**国君**（国泰君安期货 交易结算单 txt，GBK 编码邮件附件）。
+- 当前支持券商：**国君 / 国泰海通**（国泰君安期货 交易结算单 txt，GBK 编码邮件附件；两者实际为同一家，共用清洗模板，入库 `broker` 写实际券商名）。
 - 对账单类型判断（common/statement_type.py）：**文件内容特征优先**（盯市标题 MTM /
   资金状况互斥字段），**文件名资金账号前缀兜底**（95=证券现货 / 99=期权 / 其余=期货），
-  清洗后 `基本资料.statement_type` 细分为 盯市 / 期权 / 证券现货。
+  清洗后 `基本资料.statement_type` 细分为 盯市 / 期权 / 证券现货，**入库时 盯市 归一为 期货**
+  （见 `data_insert/mapping.py` 的 `STATEMENT_TYPE_STORE_MAP`）。
 - 只读取、不动原始文件：逐文件清洗为内置 DataFrame，以 `{文件名: data_frames_json}` 返回，
   供后续按数据库字段做列名转换与入库。
 - 单个文件清洗后分化成多个 DataFrame（`data_frames_json`）：
-  - `基本资料`：交易日 / 资金账号 / 客户号 / 客户名称 / 券商 / 对账单类型（盯市/期权/证券现货）/ 制表日期 / 文件名；
-  - `资金状况`：键值对标准化为单行宽表（英文列名，覆盖盯市/期权/证券现货三种格式）；
+  - `基本资料`：交易日 / 资金账号 / 客户号 / 客户名称 / 券商 / 对账单类型（期货/期权/证券现货；盯市入库归一为期货）/ 制表日期 / 文件名；
+  - `资金状况`：键值对标准化为单行宽表（英文列名，覆盖期货/期权/证券现货三种格式）；
   - `出入金明细` / `成交记录` / `平仓明细` / `持仓明细` / `持仓汇总` / `持仓变动` / `行权明细` / `组合持仓`：| 分隔表格按中文表头清洗为 DataFrame（汇总行已剔除，表内缺失资金账号列时自动补充）。
 - 新增券商时：在 `data_clean/tools/` 下实现继承 `Statement` 的清洗类，并在 `datastatement.py` 的 `BROKER_IMPORT_MAP` 注册中文券商名即可。
 

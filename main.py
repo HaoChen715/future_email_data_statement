@@ -24,6 +24,7 @@ if BASE_DIR not in sys.path:
 from src.future_email_data_statement.account_match.check_file import CheckAccountFile
 from src.future_email_data_statement.common.CheckTradingDay import CheckTradingDay
 from src.future_email_data_statement.data_clean.clean_data import CleanDataFile
+from src.future_email_data_statement.data_insert.insert_data import InsertDataFile
 from src.future_email_data_statement.datainit.broker_init import BrokerInit
 from src.future_email_data_statement.email_download.email_download import Auto_DownLoad_Email
 from src.future_email_data_statement.unzip.unzip import UnZip
@@ -75,9 +76,13 @@ def main() -> None:
     参数说明：
         yyyymmdd     运行日期（邮件下载日）。
         today|last   下载模式：today=下载当天邮件，last=下载上一交易日邮件。
-        steps        可选步骤（可多个，默认全部执行）：
-                     download_and_unzip / check_account / clean_data，
-                     也可在末尾追加券商名，表示仅对该券商执行校验与清洗。
+        steps        可选步骤（可多个）：
+                     download_and_unzip / check_account / clean_data / insert_data，
+                     也可追加券商名（位置不限），表示仅对该券商执行校验/清洗/入库。
+                     默认执行 download_and_unzip / check_account / insert_data
+                     （clean_data 仅用于查看清洗结果，入库步骤内部已含清洗）。
+        --force/-f   强制重新入库：忽略当日已成功日志，相关账号全部重新解析入库
+                     （等价于 config/info.ini [RunParams] Force_redownload=True）。
     """
     if len(sys.argv) < 3:
         print("缺少参数！用法：pdm run python main.py yyyymmdd [today|last] [steps...] [broker]")
@@ -87,19 +92,33 @@ def main() -> None:
     running_day = sys.argv[1]
     is_tradingday = sys.argv[2]
     # 剩余参数为步骤列表（沿用参考项目做法）；末尾若不是内置步骤名则视为券商名
-    default_steps = ("download_and_unzip", "check_account", "clean_data")
-    steps = sys.argv[3:]
+    step_names = (
+        "download_and_unzip",
+        "check_account",
+        "clean_data",
+        "insert_data",
+    )
+    default_steps = ["download_and_unzip", "check_account", "insert_data"]
+    # 步骤与券商名可任意顺序：是内置步骤名则作为步骤，否则视为券商名
+    # （兼容 "insert_data 国君" 与 "国君 insert_data" 两种写法）
     broker = None
-    if steps and steps[-1] not in default_steps:
-        broker = str(steps.pop())
+    force = None
+    steps = []
+    for token in sys.argv[3:]:
+        if token in step_names:
+            steps.append(token)
+        elif token in ("--force", "-f"):
+            force = True
+        else:
+            broker = str(token)
     # 未指定步骤时默认执行完整流水线（如仅传券商名，则对该券商跑全流程）
-    steps = steps or list(default_steps)
+    steps = steps or default_steps
 
     place = load_place()
     print(
         f"[main] 当前时间: {time.strftime('%Y-%m-%d %H:%M:%S')}，运行日: {running_day}，"
         f"下载模式: {is_tradingday}，运行环境: {place}，执行步骤: {steps}，"
-        f"指定券商: {broker if broker else '全部'}"
+        f"指定券商: {broker if broker else '全部'}，强制重跑: {'是' if force else '否'}"
     )
 
     # 根据运行日计算上一交易日
@@ -216,6 +235,26 @@ def main() -> None:
                 )
         except Exception as e:
             print(f"[main] clean_data 步骤执行失败: {type(e).__name__}: {e}")
+            traceback.print_exc()
+            sys.exit(1)
+
+    # ================= 4. 数据清洗入库环节 =================
+    if "insert_data" in steps:
+        try:
+            insert_data = InsertDataFile(
+                running_day=email_download_day,
+                statement_type=place,
+                broker=broker,
+                force=force,
+            )
+            stats = insert_data.run()
+            print(
+                f"[main] 邮件获取日 {email_download_day} 对账单数据入库处理完毕，"
+                f"券商 {stats['brokers']} 家 / 文件 {stats['files']} 个："
+                f"成功 {stats['inserted']}，跳过 {stats['skipped']}，失败 {stats['failed']}"
+            )
+        except Exception as e:
+            print(f"[main] insert_data 步骤执行失败: {type(e).__name__}: {e}")
             traceback.print_exc()
             sys.exit(1)
 

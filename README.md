@@ -127,6 +127,8 @@ pdm run python main.py 20260826 last                  # 下载上一交易日邮
 pdm run python main.py 20260826 today download_and_unzip   # 仅下载解压
 pdm run python main.py 20260826 today check_account        # 仅账号匹配迁移
 pdm run python main.py 20260826 today clean_data           # 仅数据清洗
+pdm run python main.py 20260826 today 国君                 # 仅处理指定券商(国君): 跳过邮件下载, 仅校验清洗该券商
+pdm run python main.py 20260826 today check_account 国君   # 指定步骤 + 指定券商
 ```
 
 > 各步骤执行失败会明确打印原因并返回退出码 1（附件目录为空 / 全部邮箱登录失败 /

@@ -94,65 +94,81 @@ class CheckAccountFile:
         digit_groups = re.findall(r"\d+", file_name)
         return str(account_id) in digit_groups
 
-    async def search_string_in_files(
-        self, file_path: str, file_name: str, bill_accountid: str
-    ):
-        async def search_in_txt(file_path):
-            try:
-                with open(file_path, "r", encoding="utf-8") as file:
-                    content = file.read()
-                    return bill_accountid in content
-            except UnicodeDecodeError:
-                self.logger.warning("检查到非utf-8编码,切换gbk编码")
-                with open(file_path, "r", encoding="gbk") as file:
-                    content = file.read()
-                    return bill_accountid in content
+    async def find_accounts_in_file(
+        self, file_path: str, file_name: str, account_ids
+    ) -> set:
+        """读取一次文件内容，批量返回其中命中的全部资金账号。
 
-        async def search_in_xlsx(file_path):
+        与逐个账号重复读取同一文件相比，本方法对每个文件只读取一次，
+        再一次性校验所有候选账号，可显著降低文件 I/O 与 Excel 解析开销。
+
+        Args:
+            file_path: 文件绝对路径。
+            file_name: 文件名（用于判断文件类型）。
+            account_ids: 候选资金账号集合（字符串）。
+
+        Returns:
+            set: 命中的资金账号集合。
+        """
+        candidates = [str(account_id) for account_id in account_ids]
+        if not candidates:
+            return set()
+
+        def match_text(text: str) -> set:
+            # 以换行拼接单元格，避免账号数字跨单元格边界被误判命中
+            return {account_id for account_id in candidates if account_id in text}
+
+        def dataframe_to_text(df: pd.DataFrame) -> str:
+            # pandas 3.0 下 DataFrame.astype(str) 会把缺失值保留为 float('nan')，
+            # 直接 join 会抛 "expected str instance, float found"，
+            # 故逐元素 str() 兜底转换后再拼接
+            return "\n".join(str(cell) for cell in df.to_numpy().ravel())
+
+        async def search_in_txt():
+            # 资金账号为 ASCII 数字，utf-8/gbk/gb18030/big5 等编码对 ASCII 字节的
+            # 表示完全一致；直接按字节匹配，避免因文件编码不统一而解码报错
+            with open(file_path, "rb") as file:
+                content = file.read()
+            found = set()
+            for account_id in candidates:
+                if account_id.encode("ascii", errors="ignore") in content:
+                    found.add(account_id)
+            return found
+
+        async def search_in_xlsx():
             workbook = load_workbook(file_path, read_only=True)
 
             async def search_in_sheet(sheet):
                 # 只读取前 20 行
                 df = pd.read_excel(file_path, sheet_name=sheet, nrows=20)
-                return df.apply(
-                    lambda row: row.astype(str)
-                    .str.contains(bill_accountid, na=False)
-                    .any(),
-                    axis=1,
-                ).any()
+                return match_text(dataframe_to_text(df))
 
             tasks = [search_in_sheet(sheet) for sheet in workbook.sheetnames]
             results = await asyncio.gather(*tasks)
-            return any(results)
+            found = set()
+            for result in results:
+                found |= result
+            return found
 
-        async def search_in_xls(file_path):
+        async def search_in_xls():
             df = pd.read_excel(file_path, header=None, nrows=20)
-            return df.apply(
-                lambda row: row.astype(str)
-                .str.contains(bill_accountid, na=False)
-                .any(),
-                axis=1,
-            ).any()
+            return match_text(dataframe_to_text(df))
 
-        # 遍历目录中的文件
         if file_name.endswith((".txt", ".TXT")):
-            if await search_in_txt(file_path):
-                return True
-        elif file_name.endswith((".xlsx", ".XLSX")):
-            if await search_in_xlsx(file_path):
-                return True
-        elif file_name.endswith((".xls", ".XLS")):
-            if await search_in_xls(file_path):
-                return True
-        return False
+            return await search_in_txt()
+        if file_name.endswith((".xlsx", ".XLSX")):
+            return await search_in_xlsx()
+        if file_name.endswith((".xls", ".XLS")):
+            return await search_in_xls()
+        return set()
 
-    def move_file(self, file_path: str, source: str, broker_id: str):
+    def move_file(self, file_path: str, source, broker_id: str):
         """
         将匹配成功的文件迁移到资源目录。
 
         Args:
             file_path (str): 源文件路径。
-            source (str): 未使用（保留与 auto_down_email 一致的接口）。
+            source: 未使用（保留与 auto_down_email 一致的接口，允许传 None）。
             broker_id (str): 账号对应券商。
         """
         target_directory = os.path.join(
@@ -171,52 +187,81 @@ class CheckAccountFile:
                 ~account_info["remark"].astype(str).str.contains("销户")
             ].reset_index(drop=True)
         account_broker_dict = dict(
-            zip(account_info["future_account_id"], account_info["broker_id"])
+            zip(
+                account_info["future_account_id"].astype(str),
+                account_info["broker_id"].astype(str),
+            )
         )
+        account_ids = set(account_broker_dict.keys())
 
         source_dir = os.path.join(self.final_file_dir, self.running_day)
         filenames_list = self.load_file_names(source_dir=source_dir)
+        self.logger.info(
+            f"[文件扫描] 开始匹配：待扫描文件 {len(filenames_list)} 个，"
+            f"待匹配账号 {len(account_ids)} 个"
+        )
 
-        for account_id, broker_id in account_broker_dict.items():
-            self.logger.info(f"正在检测账号：{account_id}（券商：{broker_id}）")
-            matched = False
-            for file_name in filenames_list:
-                if "港股" in file_name or "双融" in file_name:
-                    continue
-                file_path = os.path.join(source_dir, file_name)
-                # 检查是否为文件
-                if not os.path.isfile(file_path):
-                    continue
+        # 以「文件」为外层循环：每个文件只读取一次内容，批量校验所有账号，
+        # 避免原来「每个账号都把全部文件重新读取一遍」的重复 I/O。
+        # 每个账号仍只取文件列表顺序中首个命中的文件，保持原有匹配语义。
+        matched_accounts = set()
+        for file_name in filenames_list:
+            if "港股" in file_name or "双融" in file_name:
+                continue
+            file_path = os.path.join(source_dir, file_name)
+            # 检查是否为文件
+            if not os.path.isfile(file_path):
+                continue
 
-                # 第一步：文件名按连续数字组精确匹配资金账号
-                if self.account_in_file_name(file_name, str(account_id)):
-                    matched = True
-                    self.logger.info(
-                        f"成功匹配到资金账号：{account_id} 所属文件（文件名匹配）"
-                    )
-                    self.move_file(file_path, None, broker_id)
-                    break
+            self.logger.info(f"[文件扫描] 当前检测文件：{file_name}")
 
-                # 第二步：文件内容搜索资金账号（前20行）
-                if await self.search_string_in_files(
-                    file_path, file_name, bill_accountid=str(account_id)
-                ):
-                    matched = True
-                    self.logger.info(
-                        f"成功匹配到资金账号：{account_id} 所属文件（内容匹配）"
-                    )
-                    self.move_file(file_path, None, broker_id)
-                    break
-
-            if not matched:
-                self.logger.error(
-                    f"未在当日邮件附件中根据唯一资金账号找到 券商： {broker_id}, 账号：{account_id} 所属文件"
+            # 第一步：文件名按连续数字组精确匹配资金账号（批量比对未匹配账号）
+            digit_groups = set(re.findall(r"\d+", file_name))
+            for account_id in (account_ids - matched_accounts) & digit_groups:
+                matched_accounts.add(account_id)
+                broker_id = account_broker_dict[account_id]
+                self.logger.info(
+                    f"[文件扫描] 文件名命中：{file_name} -> "
+                    f"账号 {account_id}（券商 {broker_id}）"
                 )
-                self.logger.warning(
-                    "请检查当日邮件信息,如果确实存在遗漏,请联系对应券商"
-                )
+                self.move_file(file_path, None, broker_id)
 
-        self.logger.info("文件校验程序执行完成")
+            # 第二步：文件内容搜索资金账号（前20行，每文件仅读取一次）
+            remaining_accounts = account_ids - matched_accounts
+            if not remaining_accounts:
+                continue
+            content_matched = await self.find_accounts_in_file(
+                file_path, file_name, remaining_accounts
+            )
+            for account_id in content_matched:
+                matched_accounts.add(account_id)
+                broker_id = account_broker_dict[account_id]
+                self.logger.info(
+                    f"[文件扫描] 内容命中：{file_name} -> "
+                    f"账号 {account_id}（券商 {broker_id}）"
+                )
+                self.move_file(file_path, None, broker_id)
+
+        # 未被任何文件命中的账号统一告警
+        unmatched_accounts = [
+            (account_id, broker_id)
+            for account_id, broker_id in account_broker_dict.items()
+            if account_id not in matched_accounts
+        ]
+        for account_id, broker_id in unmatched_accounts:
+            self.logger.error(
+                f"[文件扫描] 未命中：未在当日邮件附件中找到 "
+                f"券商 {broker_id} 账号 {account_id} 所属文件"
+            )
+        if unmatched_accounts:
+            self.logger.warning(
+                "请检查当日邮件信息,如果确实存在遗漏,请联系对应券商"
+            )
+
+        self.logger.info(
+            f"[文件扫描] 匹配结束：命中 {len(matched_accounts)}/{len(account_ids)} 个账号，"
+            f"未命中 {len(unmatched_accounts)} 个"
+        )
 
     async def main(self):
         account_info = self.select_account_info()

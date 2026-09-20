@@ -40,7 +40,8 @@ def load_place() -> str:
     """
     读取 config/info.ini [RunParams] 中的 Place 运行环境。
 
-    处理日期与执行步骤均通过命令行参数控制（见 main），本程序无需其他运行时参数。
+    处理日期、执行步骤与指定券商的传参均通过命令行参数控制（见 main），
+    本程序其余运行时参数来自配置文件。
 
     Returns:
         str: 运行环境，Trade=生产 / Test=测试；读取失败时默认 Trade。
@@ -75,22 +76,30 @@ def main() -> None:
         yyyymmdd     运行日期（邮件下载日）。
         today|last   下载模式：today=下载当天邮件，last=下载上一交易日邮件。
         steps        可选步骤（可多个，默认全部执行）：
-                     download_and_unzip / check_account / clean_data
+                     download_and_unzip / check_account / clean_data，
+                     也可在末尾追加券商名，表示仅对该券商执行校验与清洗。
     """
     if len(sys.argv) < 3:
-        print("缺少参数！用法：pdm run python main.py yyyymmdd [today|last] [steps...]")
+        print("缺少参数！用法：pdm run python main.py yyyymmdd [today|last] [steps...] [broker]")
         sys.exit(1)
 
     start_time = time.time()
     running_day = sys.argv[1]
     is_tradingday = sys.argv[2]
-    # 剩余参数为步骤列表；未指定时默认执行完整流水线
-    steps = sys.argv[3:] or ["download_and_unzip", "check_account", "clean_data"]
+    # 剩余参数为步骤列表（沿用参考项目做法）；末尾若不是内置步骤名则视为券商名
+    default_steps = ("download_and_unzip", "check_account", "clean_data")
+    steps = sys.argv[3:]
+    broker = None
+    if steps and steps[-1] not in default_steps:
+        broker = str(steps.pop())
+    # 未指定步骤时默认执行完整流水线（如仅传券商名，则对该券商跑全流程）
+    steps = steps or list(default_steps)
 
     place = load_place()
     print(
         f"[main] 当前时间: {time.strftime('%Y-%m-%d %H:%M:%S')}，运行日: {running_day}，"
-        f"下载模式: {is_tradingday}，运行环境: {place}，执行步骤: {steps}"
+        f"下载模式: {is_tradingday}，运行环境: {place}，执行步骤: {steps}，"
+        f"指定券商: {broker if broker else '全部'}"
     )
 
     # 根据运行日计算上一交易日
@@ -121,27 +130,29 @@ def main() -> None:
     # ================= 1. 下载与解压环节 =================
     if "download_and_unzip" in steps:
         try:
-            email_download = Auto_DownLoad_Email(
-                email_download_day=email_download_day, statement_type=place
-            )
-            email_download.main()
-
-            # 校验下载结果: 附件目录必须非空, 否则视为失败并明确报错
-            download_dir = os.path.join(
-                email_download.attachments_dir, email_download_day
-            )
-            downloaded_files = (
-                [f for f in os.listdir(download_dir)]
-                if os.path.isdir(download_dir)
-                else []
-            )
-            if not downloaded_files:
-                raise RuntimeError(
-                    f"附件下载目录为空: {download_dir}，请检查邮箱配置与当日邮件"
+            # 指定券商时跳过邮件下载，仅解压本地已有附件
+            if not broker:
+                email_download = Auto_DownLoad_Email(
+                    email_download_day=email_download_day, statement_type=place
                 )
-            print(
-                f"[main] 邮件下载完成: 共 {len(downloaded_files)} 个附件文件"
-            )
+                email_download.main()
+
+                # 校验下载结果: 附件目录必须非空, 否则视为失败并明确报错
+                download_dir = os.path.join(
+                    email_download.attachments_dir, email_download_day
+                )
+                downloaded_files = (
+                    [f for f in os.listdir(download_dir)]
+                    if os.path.isdir(download_dir)
+                    else []
+                )
+                if not downloaded_files:
+                    raise RuntimeError(
+                        f"附件下载目录为空: {download_dir}，请检查邮箱配置与当日邮件"
+                    )
+                print(
+                    f"[main] 邮件下载完成: 共 {len(downloaded_files)} 个附件文件"
+                )
 
             unzip = UnZip(unzip_file_day=email_download_day, statement_type=place)
             unzip.unzip()
@@ -157,6 +168,18 @@ def main() -> None:
             check_file = CheckAccountFile(
                 running_day=email_download_day, statement_type=place
             )
+            # 指定券商时，包装账号查询结果，仅保留该券商账号参与匹配迁移，
+            # 无需修改 CheckAccountFile 构造签名（兼容已编译的 src 模块）
+            if broker:
+                _select_account_info = check_file.select_account_info
+
+                def _select_broker_accounts():
+                    account_info = _select_account_info()
+                    return account_info[
+                        account_info["broker_id"].astype(str) == broker
+                    ].reset_index(drop=True)
+
+                check_file.select_account_info = _select_broker_accounts
             asyncio.run(check_file.main())
             print(f"[main] 邮件获取日 {email_download_day} 附件数据核对分类处理完毕")
         except Exception as e:
@@ -171,6 +194,13 @@ def main() -> None:
                 running_day=email_download_day, statement_type=place
             )
             clean_results = clean_data.clean()
+            # 指定券商时仅保留该券商的清洗结果（兼容已编译的 src 模块）
+            if broker:
+                clean_results = {
+                    name: files
+                    for name, files in clean_results.items()
+                    if name == broker
+                }
             cleaned_files = sum(
                 len(files) for files in clean_results.values()
             )

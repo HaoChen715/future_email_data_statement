@@ -1,0 +1,752 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>期货对账单 Open API 接口文档</title>
+  <style>
+    :root {
+      --ink: #172033;
+      --muted: #667085;
+      --line: #dfe5ec;
+      --paper: #ffffff;
+      --wash: #f5f7fa;
+      --brand: #0f766e;
+      --brand-soft: #e7f6f3;
+      --post: #166534;
+      --warning: #9a3412;
+      --warning-soft: #fff7ed;
+      --code: #101827;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--wash);
+      font: 14px/1.65 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    }
+    a { color: inherit; }
+    code, pre { font-family: Consolas, "SFMono-Regular", monospace; }
+    .layout { display: grid; grid-template-columns: 270px minmax(0, 1fr); min-height: 100vh; }
+    aside {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow: auto;
+      padding: 28px 20px;
+      color: #dbeafe;
+      background: #10212f;
+    }
+    .brand { margin-bottom: 24px; }
+    .brand small { display: block; color: #7dd3fc; letter-spacing: .12em; text-transform: uppercase; }
+    .brand strong { display: block; margin-top: 6px; color: #fff; font-size: 18px; }
+    nav a {
+      display: block;
+      padding: 7px 10px;
+      border-radius: 7px;
+      color: #b8c8d8;
+      text-decoration: none;
+    }
+    nav a:hover { color: #fff; background: rgba(255,255,255,.07); }
+    nav .group { margin-top: 16px; padding: 0 10px 5px; color: #6ee7b7; font-size: 12px; font-weight: 700; }
+    main { width: min(1180px, 100%); padding: 44px 48px 80px; }
+    .hero {
+      padding: 32px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: var(--paper);
+      box-shadow: 0 12px 32px rgba(15, 23, 42, .06);
+    }
+    h1 { margin: 0 0 10px; font-size: 32px; line-height: 1.25; }
+    h2 { margin: 44px 0 16px; font-size: 23px; scroll-margin-top: 24px; }
+    h3 { margin: 28px 0 12px; font-size: 18px; scroll-margin-top: 24px; }
+    p { margin: 8px 0; }
+    .subtitle { color: var(--muted); font-size: 16px; }
+    .meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 22px; }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 3px 10px;
+      border-radius: 999px;
+      color: var(--brand);
+      background: var(--brand-soft);
+      font-weight: 650;
+    }
+    .badge.post { color: #fff; background: var(--post); }
+    .badge.get { color: #fff; background: #1d4ed8; }
+    .endpoint {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 20px;
+      padding: 15px 17px;
+      border: 1px solid #b7dfd9;
+      border-radius: 10px;
+      background: #f0fdfa;
+      overflow-x: auto;
+    }
+    .endpoint code { white-space: nowrap; font-size: 15px; font-weight: 700; }
+    .card {
+      padding: 22px 24px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--paper);
+    }
+    .callout {
+      margin: 18px 0;
+      padding: 15px 18px;
+      border-left: 4px solid #ea580c;
+      border-radius: 8px;
+      color: #7c2d12;
+      background: var(--warning-soft);
+    }
+    .callout strong { color: var(--warning); }
+    .facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 24px; }
+    .fact span { display: block; color: var(--muted); font-size: 12px; }
+    .fact code, .fact strong { font-size: 14px; }
+    .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { color: #344054; background: #f8fafc; font-size: 12px; white-space: nowrap; }
+    tr:last-child td { border-bottom: 0; }
+    td code { color: #0f5f58; font-size: 13px; }
+    .required { color: #b42318; font-weight: 700; }
+    .optional { color: var(--muted); }
+    .ignored { color: #7c3aed; font-weight: 650; }
+    .model-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+    .model-head p { color: var(--muted); }
+    .search {
+      position: sticky;
+      top: 12px;
+      z-index: 3;
+      display: flex;
+      gap: 10px;
+      margin: 18px 0;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(255,255,255,.94);
+      backdrop-filter: blur(8px);
+    }
+    .search input {
+      width: 100%;
+      padding: 9px 12px;
+      border: 1px solid #cbd5e1;
+      border-radius: 7px;
+      font: inherit;
+    }
+    pre {
+      margin: 0;
+      padding: 18px;
+      color: #d6e2f0;
+      background: var(--code);
+      border-radius: 10px;
+      overflow: auto;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+    .note { color: var(--muted); font-size: 13px; }
+    footer { margin-top: 52px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--muted); }
+    @media (max-width: 900px) {
+      .layout { display: block; }
+      aside { position: static; height: auto; }
+      nav { display: none; }
+      main { padding: 24px 16px 56px; }
+      .facts { grid-template-columns: 1fr; }
+      h1 { font-size: 26px; }
+    }
+    @media print {
+      body { background: #fff; font-size: 11px; }
+      .layout { display: block; }
+      aside, .search { display: none; }
+      main { width: 100%; padding: 0; }
+      .hero, .card, .table-wrap { box-shadow: none; break-inside: avoid; }
+      h2, h3 { break-after: avoid; }
+      pre { white-space: pre-wrap; }
+    }
+  </style>
+</head>
+<body>
+<div class="layout">
+  <aside>
+    <div class="brand">
+      <small>Open API Reference</small>
+      <strong>期货对账单 Open API</strong>
+    </div>
+    <nav>
+      <a href="#overview">接口概览</a>
+      <a href="#query-broker">查询券商列表</a>
+      <a href="#query-account">查询账户列表</a>
+      <a href="#query-success-account">查询入库成功账户</a>
+      <a href="#rules">入库处理规则</a>
+      <a href="#request">入库请求参数</a>
+      <a href="#example">入库请求示例</a>
+      <a href="#response">入库响应说明</a>
+      <a href="#errors">入库异常说明</a>
+      <div class="group">明细对象</div>
+      <div id="model-nav"></div>
+    </nav>
+  </aside>
+
+  <main>
+    <section class="hero" id="overview">
+      <h1>期货对账单 Open API</h1>
+      <p class="subtitle">提供券商、账户配置及入库成功账户查询，并按交易日和资金账号原子覆盖写入完整期货对账单。</p>
+      <div class="meta">
+        <span class="badge get">GET × 3</span>
+        <span class="badge post">POST</span>
+        <span class="badge">4 个接口</span>
+        <span class="badge">13 类业务明细</span>
+        <span class="badge">事务性覆盖</span>
+      </div>
+      <div class="endpoint">
+        <span class="badge get">GET</span>
+        <code>/openApi/billFutureApi/queryBrokerInit</code>
+      </div>
+      <div class="endpoint">
+        <span class="badge get">GET</span>
+        <code>/openApi/billFutureApi/queryAccountList?tradingday={tradingday}</code>
+      </div>
+      <div class="endpoint">
+        <span class="badge get">GET</span>
+        <code>/openApi/billFutureApi/queryInsertSuccessAccountList?tradingday={tradingday}</code>
+      </div>
+      <div class="endpoint">
+        <span class="badge post">POST</span>
+        <code>/openApi/billFutureApi/settlementFileInsert</code>
+      </div>
+    </section>
+
+    <h2 id="query-broker">查询券商列表</h2>
+    <div class="card">
+      <div class="endpoint">
+        <span class="badge get">GET</span>
+        <code>/openApi/billFutureApi/queryBrokerInit</code>
+      </div>
+      <div class="facts">
+        <div class="fact"><span>请求参数</span><strong>无</strong></div>
+        <div class="fact"><span>响应类型</span><code>Result&lt;List&lt;String&gt;&gt;</code></div>
+        <div class="fact"><span>数据源</span><code>multi-inside</code></div>
+        <div class="fact"><span>用途</span><strong>初始化可选券商编号</strong></div>
+      </div>
+      <h3>查询逻辑</h3>
+      <pre><code>SELECT DISTINCT broker_id
+FROM v_config_bill_future_account</code></pre>
+      <p class="note">接口按数据库查询结果返回去重后的 <code>broker_id</code>；当前 SQL 未声明排序或空值过滤。</p>
+      <h3>成功响应示例</h3>
+      <pre><code>{
+  "success": true,
+  "message": "",
+  "code": 200,
+  "result": ["BROKER_A", "BROKER_B"],
+  "timestamp": 1791475200000
+}</code></pre>
+    </div>
+
+    <h2 id="query-account">查询指定日期账户列表</h2>
+    <div class="card">
+      <div class="endpoint">
+        <span class="badge get">GET</span>
+        <code>/openApi/billFutureApi/queryAccountList?tradingday=20261008</code>
+      </div>
+      <div class="facts">
+        <div class="fact"><span>请求位置</span><strong>Query String</strong></div>
+        <div class="fact"><span>响应类型</span><code>Result&lt;List&lt;ConfigBillFutureAccountDTO&gt;&gt;</code></div>
+        <div class="fact"><span>数据源</span><code>multi-inside</code></div>
+        <div class="fact"><span>前一交易日</span><code>queryPrevWorkDate(tradingday, 1)</code></div>
+      </div>
+      <h3>请求参数</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>字段</th><th>位置</th><th>类型</th><th>必填</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>tradingday</code></td><td>Query</td><td>String</td><td class="required">是</td><td>指定日期；系统据此计算前 1 个交易日。项目交易日通常使用 <code>yyyyMMdd</code> 格式，例如 <code>20261008</code>。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <h3>查询逻辑</h3>
+      <p>Controller 先计算 <code>prevTradingday</code>，然后执行以下查询：</p>
+      <pre><code>SELECT *
+FROM v_config_bill_future_account
+WHERE start_date &lt;= #{tradingday}
+  AND end_date &gt;= #{prevTradingday}</code></pre>
+      <h3>返回对象 ConfigBillFutureAccountDTO</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>futureAccountId</code></td><td>String</td><td>期货资金账号。</td></tr>
+            <tr><td><code>futureName</code></td><td>String</td><td>期货账户名称。</td></tr>
+            <tr><td><code>accountType</code></td><td>String</td><td>账户类型。</td></tr>
+            <tr><td><code>brokerId</code></td><td>String</td><td>券商编号。</td></tr>
+            <tr><td><code>startDate</code></td><td>String</td><td>配置生效开始日期。</td></tr>
+            <tr><td><code>endDate</code></td><td>String</td><td>配置生效结束日期。</td></tr>
+            <tr><td><code>remark</code></td><td>String</td><td>备注。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <h3>成功响应示例</h3>
+      <pre><code>{
+  "success": true,
+  "message": "",
+  "code": 200,
+  "result": [
+    {
+      "futureAccountId": "80000001",
+      "futureName": "示例期货账户",
+      "accountType": "FUTURE",
+      "brokerId": "BROKER_A",
+      "startDate": "20260101",
+      "endDate": "20261231",
+      "remark": ""
+    }
+  ],
+  "timestamp": 1791475200000
+}</code></pre>
+    </div>
+
+    <h2 id="query-success-account">查询指定日期入库成功账户列表</h2>
+    <div class="card">
+      <div class="endpoint">
+        <span class="badge get">GET</span>
+        <code>/openApi/billFutureApi/queryInsertSuccessAccountList?tradingday=20261008</code>
+      </div>
+      <div class="facts">
+        <div class="fact"><span>请求位置</span><strong>Query String</strong></div>
+        <div class="fact"><span>响应类型</span><code>Result&lt;List&lt;String&gt;&gt;</code></div>
+        <div class="fact"><span>数据源</span><code>multi-inside</code></div>
+        <div class="fact"><span>数据表</span><code>bill_future_settle_processing_log</code></div>
+      </div>
+      <h3>请求参数</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>字段</th><th>位置</th><th>类型</th><th>必填</th><th>默认值</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>tradingday</code></td><td>Query</td><td>String</td><td class="required">是</td><td>—</td><td>指定交易日期；项目通常使用 <code>yyyyMMdd</code> 格式，例如 <code>20261008</code>。</td></tr>
+            <tr><td><code>accountType</code></td><td>Query</td><td>String</td><td class="optional">否</td><td><code>期货</code></td><td>账户类型，按完全相等条件查询。</td></tr>
+            <tr><td><code>logType</code></td><td>Query</td><td>String</td><td class="optional">否</td><td><code>对账单数据</code></td><td>日志类型，按完全相等条件查询。</td></tr>
+            <tr><td><code>logStatus</code></td><td>Query</td><td>String</td><td class="optional">否</td><td><code>Success</code></td><td>日志状态，按完全相等条件查询；实体约定值为 <code>Success</code> 或 <code>Failed</code>。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <h3>查询逻辑</h3>
+      <p>服务使用以上 4 个条件查询处理日志，提取 <code>accountId</code> 后在应用层去重并返回。每次写入处理日志前会先删除相同交易日、相同账号的旧日志，因此正常情况下每个账号每天仅保留最新一条记录。等价筛选条件如下：</p>
+      <pre><code>SELECT account_id
+FROM bill_future_settle_processing_log
+WHERE tradingday = #{tradingday}
+  AND account_type = #{accountType}
+  AND log_type = #{logType}
+  AND log_status = #{logStatus}</code></pre>
+      <p class="note">接口对最终账户编号执行 <code>distinct</code>；当前查询未声明排序，返回顺序不构成接口承诺。</p>
+      <h3>请求示例</h3>
+      <pre><code>GET /openApi/billFutureApi/queryInsertSuccessAccountList?tradingday=20261008
+
+GET /openApi/billFutureApi/queryInsertSuccessAccountList
+    ?tradingday=20261008
+    &amp;accountType=期货
+    &amp;logType=对账单数据
+    &amp;logStatus=Success</code></pre>
+      <h3>成功响应示例</h3>
+      <pre><code>{
+  "success": true,
+  "message": "",
+  "code": 200,
+  "result": ["80000001", "80000002"],
+  "timestamp": 1791475200000
+}</code></pre>
+    </div>
+
+    <h2 id="rules">入库处理规则</h2>
+    <div class="card">
+      <div class="facts">
+        <div class="fact"><span>Controller</span><code>BillFutureApiController</code></div>
+        <div class="fact"><span>请求体</span><code>BillFutureSettleIngestRequest</code></div>
+        <div class="fact"><span>响应数据</span><code>BillFutureSettleIngestResult</code></div>
+        <div class="fact"><span>处理日志</span><code>bill_future_settle_processing_log</code></div>
+      </div>
+      <div class="callout">
+        <strong>这是全量快照接口。</strong> 服务会先按顶层 <code>tradingday + accountId</code> 删除 13 张业务表中的旧数据，再分别写入本次各数组。某数组为 <code>null</code>、缺失或空数组时，该表对应账号和交易日的旧数据仍会被清空。
+      </div>
+      <ul>
+        <li>顶层 <code>tradingday</code>、<code>accountId</code> 均不可为空。</li>
+        <li>每条明细的 <code>tradingday</code>、<code>accountId</code> 必须与顶层值完全一致，否则整个请求失败并回滚。</li>
+        <li>数组中不可包含 <code>null</code> 元素。</li>
+        <li>客户端传入的明细 <code>id</code>、<code>insertTime</code> 会被服务端清空，由数据库重新生成。</li>
+        <li>13 张表在同一事务内处理，任一表写入失败时整体回滚；批量写入批次大小为 1000。</li>
+        <li>账号数据全部入库成功后，Controller 写入一条 <code>Success</code> 处理日志。</li>
+        <li>入库 Service 抛出运行时异常时，Controller 写入一条 <code>Failed</code> 处理日志，<code>logInfo</code> 保存异常消息，随后继续抛出原始异常。</li>
+        <li>处理日志保存前，Service 先按 <code>tradingday + accountId</code> 删除旧日志，再插入最新日志；删除和插入位于同一事务中。</li>
+        <li>处理日志固定使用 <code>accountType=期货</code>、<code>logType=对账单数据</code>，同时记录日志时间和 <code>yyyyMMdd</code> 格式的日志日期。</li>
+        <li>鉴权头由实际部署的网关或 Spring Security 配置决定，Controller 本身未声明额外请求头。</li>
+      </ul>
+      <div class="callout">
+        <strong>事务边界说明：</strong> 账号业务数据先在入库 Service 的事务内提交，处理日志随后由 Controller 单独写入。成功日志写入异常不会回滚已经提交的账号业务数据；失败日志写入异常不会覆盖原始入库异常。
+      </div>
+    </div>
+
+    <h2 id="request">入库请求参数</h2>
+    <h3>顶层请求体</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>字段</th><th>类型</th><th>必填</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td><code>tradingday</code></td><td>String</td><td class="required">是</td><td>交易日，约定格式 <code>yyyyMMdd</code>，例如 <code>20261008</code>。当前服务仅校验非空，并以该值作为覆盖条件。</td></tr>
+          <tr><td><code>accountId</code></td><td>String</td><td class="required">是</td><td>资金账号；当前服务校验非空，并以该值作为覆盖条件。</td></tr>
+          <tr><td><code>basicInfoList</code></td><td>Array&lt;BillFutureSettleBasicInfo&gt;</td><td class="optional">否*</td><td>基本资料；缺失或空数组表示该类数据写入 0 条，并清空既有数据。</td></tr>
+          <tr><td><code>capitalInfoList</code></td><td>Array&lt;BillFutureSettleCapitalInfo&gt;</td><td class="optional">否*</td><td>资金状况。</td></tr>
+          <tr><td><code>cashOutInDetailList</code></td><td>Array&lt;BillFutureSettleCashOutInDetail&gt;</td><td class="optional">否*</td><td>出入金明细。</td></tr>
+          <tr><td><code>tradeDetailList</code></td><td>Array&lt;BillFutureSettleTradeDetail&gt;</td><td class="optional">否*</td><td>成交明细。</td></tr>
+          <tr><td><code>closingDetailList</code></td><td>Array&lt;BillFutureSettleClosingDetail&gt;</td><td class="optional">否*</td><td>平仓明细。</td></tr>
+          <tr><td><code>positionDetailList</code></td><td>Array&lt;BillFutureSettlePositionDetail&gt;</td><td class="optional">否*</td><td>持仓明细。</td></tr>
+          <tr><td><code>positionSummaryList</code></td><td>Array&lt;BillFutureSettlePositionSummary&gt;</td><td class="optional">否*</td><td>持仓汇总。</td></tr>
+          <tr><td><code>optionExerciseDetailList</code></td><td>Array&lt;BillFutureSettleOptionExerciseDetail&gt;</td><td class="optional">否*</td><td>期权执行明细。</td></tr>
+          <tr><td><code>optionTradeDetailList</code></td><td>Array&lt;BillFutureSettleOptionTradeDetail&gt;</td><td class="optional">否*</td><td>期权成交明细。</td></tr>
+          <tr><td><code>optionPositionChangeList</code></td><td>Array&lt;BillFutureSettleOptionPositionChange&gt;</td><td class="optional">否*</td><td>期权持仓变动。</td></tr>
+          <tr><td><code>optionPositionSummaryList</code></td><td>Array&lt;BillFutureSettleOptionPositionSummary&gt;</td><td class="optional">否*</td><td>期权持仓汇总。</td></tr>
+          <tr><td><code>optionPositionDetailList</code></td><td>Array&lt;BillFutureSettleOptionPositionDetail&gt;</td><td class="optional">否*</td><td>期权持仓明细。</td></tr>
+          <tr><td><code>optionCombinationPositionList</code></td><td>Array&lt;BillFutureSettleOptionCombinationPosition&gt;</td><td class="optional">否*</td><td>期权组合持仓。</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">* Java 字段允许缺失，但接口具有全量覆盖语义。调用方应显式提交全部 13 个数组，避免误清理未提交类别的数据。</p>
+
+    <div class="search">
+      <input id="field-search" type="search" placeholder="搜索字段名、类型或中文说明，例如 margin / 保证金" aria-label="搜索字段">
+    </div>
+    <div id="models"></div>
+
+    <h2 id="example">入库请求示例</h2>
+    <p>以下示例显式包含全部 13 个数组。示例仅在基本资料和资金状况中各写入一条，其余类别会被清空。</p>
+    <pre><code>{
+  "tradingday": "20261008",
+  "accountId": "80000001",
+  "basicInfoList": [
+    {
+      "tradingday": "20261008",
+      "accountId": "80000001",
+      "clientId": "C10001",
+      "clientName": "示例客户",
+      "broker": "示例期货",
+      "statementType": "期货",
+      "creationDate": "20261009",
+      "fileName": "settlement_20261008.txt"
+    }
+  ],
+  "capitalInfoList": [
+    {
+      "tradingday": "20261008",
+      "accountId": "80000001",
+      "statementType": "期货",
+      "lastDayBalance": 100000.00,
+      "balance": 103250.50,
+      "customerEquity": 103250.50,
+      "depositWithdrawal": 0,
+      "commission": 32.50,
+      "availableFunds": 53250.50,
+      "marginOccupancy": 50000.00,
+      "risk": "48.43%"
+    }
+  ],
+  "cashOutInDetailList": [],
+  "tradeDetailList": [],
+  "closingDetailList": [],
+  "positionDetailList": [],
+  "positionSummaryList": [],
+  "optionExerciseDetailList": [],
+  "optionTradeDetailList": [],
+  "optionPositionChangeList": [],
+  "optionPositionSummaryList": [],
+  "optionPositionDetailList": [],
+  "optionCombinationPositionList": []
+}</code></pre>
+
+    <h2 id="response">入库响应说明</h2>
+    <h3>统一响应结构 Result&lt;BillFutureSettleIngestResult&gt;</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td><code>success</code></td><td>Boolean</td><td>成功标志。</td></tr>
+          <tr><td><code>message</code></td><td>String</td><td>统一响应消息；本接口成功时外层通常为空字符串。</td></tr>
+          <tr><td><code>code</code></td><td>Integer</td><td>业务响应码；成功为 <code>200</code>。</td></tr>
+          <tr><td><code>result.tradingday</code></td><td>String</td><td>本次处理的交易日。</td></tr>
+          <tr><td><code>result.accountId</code></td><td>String</td><td>本次处理的资金账号。</td></tr>
+          <tr><td><code>result.tableRecordCounts</code></td><td>Map&lt;String, Integer&gt;</td><td>13 张业务表分别写入的记录数，包含写入 0 条的表。</td></tr>
+          <tr><td><code>result.totalRecordCount</code></td><td>Integer</td><td>本次写入的总记录数。</td></tr>
+          <tr><td><code>result.message</code></td><td>String</td><td>处理结果，成功时为“期货对账单入库成功”。</td></tr>
+          <tr><td><code>timestamp</code></td><td>Long</td><td>服务端响应时间戳（毫秒）。</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <h3>成功响应示例</h3>
+    <pre><code>{
+  "success": true,
+  "message": "",
+  "code": 200,
+  "result": {
+    "tradingday": "20261008",
+    "accountId": "80000001",
+    "tableRecordCounts": {
+      "bill_future_settle_basic_info": 1,
+      "bill_future_settle_capital_info": 1,
+      "bill_future_settle_cash_out_in_detail": 0,
+      "bill_future_settle_trade_detail": 0,
+      "bill_future_settle_closing_detail": 0,
+      "bill_future_settle_position_detail": 0,
+      "bill_future_settle_position_summary": 0,
+      "bill_future_settle_option_exercise_detail": 0,
+      "bill_future_settle_option_trade_detail": 0,
+      "bill_future_settle_option_position_change": 0,
+      "bill_future_settle_option_position_summary": 0,
+      "bill_future_settle_option_position_detail": 0,
+      "bill_future_settle_option_combination_position": 0
+    },
+    "totalRecordCount": 2,
+    "message": "期货对账单入库成功"
+  },
+  "timestamp": 1791475200000
+}</code></pre>
+
+    <h2 id="errors">入库异常说明</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>场景</th><th>服务端消息</th><th>结果</th></tr></thead>
+        <tbody>
+          <tr><td>请求体为空</td><td>入库请求不能为空</td><td>整个事务不执行。</td></tr>
+          <tr><td>资金账号为空</td><td>资金账号不能为空</td><td>整个事务不执行。</td></tr>
+          <tr><td>交易日为空</td><td>交易日不能为空</td><td>整个事务不执行。</td></tr>
+          <tr><td>任一数组包含 null</td><td><code>{业务名称}数据不能包含空记录</code></td><td>整个事务回滚。</td></tr>
+          <tr><td>明细账号或交易日与顶层不一致</td><td><code>{业务名称}数据的交易日或资金账号与请求不一致</code></td><td>整个事务回滚。</td></tr>
+          <tr><td>数据库删除或写入失败</td><td>由统一异常处理器返回具体错误</td><td>13 张表整体回滚；Controller 尝试写入 <code>Failed</code> 日志后重新抛出原异常。</td></tr>
+          <tr><td>成功处理日志写入失败</td><td>期货对账单处理日志入库失败</td><td>接口抛出异常，但此前已提交的账号业务数据不回滚。</td></tr>
+          <tr><td>失败处理日志写入失败</td><td>仍以原始入库异常为主</td><td>日志异常附加到原异常并写入服务日志，不覆盖原始失败原因。</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">HTTP 状态码与异常响应外形由项目统一异常处理器及网关配置决定；业务失败的常规 Result 结构通常使用 <code>success=false</code>、<code>code=500</code>。</p>
+
+    <footer>
+      文档依据 <code>BillFutureApiController</code>、<code>BillFutureApiMapper</code>、请求/响应 DTO、处理日志及 13 个入库实体类与相关 Service 实现生成。更新日期：2026-10-09。
+    </footer>
+  </main>
+</div>
+
+<script>
+  const models = [
+    {
+      id: 'basic-info', title: '基本资料', requestField: 'basicInfoList', type: 'BillFutureSettleBasicInfo', table: 'bill_future_settle_basic_info',
+      fields: [
+        ['id','Long','自增主键'], ['tradingday','String','交易日 Date'], ['accountId','String','资金账号（资金状况块资金账号）'],
+        ['clientId','String','客户号 Client ID'], ['clientName','String','客户名称 Client Name'], ['broker','String','券商'],
+        ['statementType','String','对账单类型：期货/期权/证券现货（盯市入库归一为期货）'], ['creationDate','String','制表日期 Creation Date'],
+        ['fileName','String','源文件名'], ['insertTime','Date','入库时间，格式 yyyy-MM-dd HH:mm:ss']
+      ]
+    },
+    {
+      id: 'capital-info', title: '资金状况', requestField: 'capitalInfoList', type: 'BillFutureSettleCapitalInfo', table: 'bill_future_settle_capital_info',
+      fields: [
+        ['id','Long','自增主键'], ['tradingday','String','交易日 Date'], ['accountId','String','资金账号'],
+        ['statementType','String','对账单类型：期货/期权/证券现货（盯市入库归一为期货）'], ['lastDayBalance','BigDecimal','期初结存 Balance B/F'],
+        ['balance','BigDecimal','期末结存 Balance C/F'], ['customerEquity','BigDecimal','客户权益 Client Equity'],
+        ['depositWithdrawal','BigDecimal','出入金 Deposit/Withdrawal'], ['commission','BigDecimal','手续费 Commission'],
+        ['maintenanceMargin','BigDecimal','维持保证金 SMargin'], ['premiumReceived','BigDecimal','权利金收入 Premium received'],
+        ['premiumPaid','BigDecimal','权利金支出 Premium paid'], ['availableFunds','BigDecimal','可用资金 Fund Avail.'],
+        ['initialMargin','BigDecimal','基础保证金 Initial Margin'], ['marginCall','BigDecimal','追加保证金 Margin Call'],
+        ['longOptionMarketValue','BigDecimal','权利仓市值（期货格式为多头期权市值）'], ['shortOptionMarketValue','BigDecimal','义务仓市值（期货格式为空头期权市值）'],
+        ['marketValueEquity','BigDecimal','市值权益 Market value(equity)'], ['risk','String','风险度 Risk Degree（含%，如 7.83%）'],
+        ['strikeFrozenSum','BigDecimal','执行冻结资金 StrikeFrozenSum'], ['strikeReceivable','BigDecimal','执行实收资金 StrikeRecAble'],
+        ['strikePayable','BigDecimal','执行实付资金 StrikePayAble'], ['receivedSumByCash','BigDecimal','现金替代实收资金 RecSumByCash'],
+        ['paidSumByCash','BigDecimal','现金替代实付资金 PaySumByCash'], ['closingProfitLoss','BigDecimal','平仓盈亏 Realized P/L'],
+        ['floatingProfitLoss','BigDecimal','持仓盯市盈亏 MTM P/L'], ['optionExerciseProfitLoss','BigDecimal','期权执行盈亏 Exercise P/L'],
+        ['deliveryProfitLoss','BigDecimal','交割盈亏 Delivery P/L'], ['pledgeAmount','BigDecimal','质押金 Pledge Amount'],
+        ['fxPledgeOccupancy','BigDecimal','货币质押保证金占用 FX Pledge Occ.'], ['marginOccupancy','BigDecimal','保证金占用 Margin Occupied'],
+        ['deliveryMargin','BigDecimal','交割保证金 Delivery Margin'], ['newFxPledge','BigDecimal','货币质入 New FX Pledge'],
+        ['fxRedemption','BigDecimal','货币质出 FX Redemption'], ['changeInPledgeAmount','BigDecimal','质押变化金额 Chg in Pledge Amt'],
+        ['changeInFxPledge','BigDecimal','货币质押变化金额 Chg in FX Pledge'], ['totalAssetsBroughtForward','BigDecimal','期初总资产 Deposit b/f'],
+        ['totalAssetsCarriedForward','BigDecimal','期末总资产 Deposit c/f'], ['fundBalanceBroughtForward','BigDecimal','期初资金余额 Balance b/f'],
+        ['fundBalanceCarriedForward','BigDecimal','期末资金余额 Balance c/f'], ['stockMarketValue','BigDecimal','股票市值 Market Value'],
+        ['openPreparation','BigDecimal','开仓准备金 Open Prepa'], ['fundWithdrawal','BigDecimal','可提资金 Fund Withdrawal'],
+        ['fundFrozen','BigDecimal','冻结资金 Fund Frozen'], ['interest','BigDecimal','利息 Interest'],
+        ['buySecurityPayment','BigDecimal','买券金额 BSecPayment'], ['sellSecurityIncome','BigDecimal','卖券金额 SSecIncome'],
+        ['actualPayment','BigDecimal','实际收付 ActualPayment'], ['bonus','BigDecimal','红利 Bonus'],
+        ['insertTime','Date','入库时间，格式 yyyy-MM-dd HH:mm:ss']
+      ]
+    },
+    {
+      id: 'cash-detail', title: '出入金明细', requestField: 'cashOutInDetailList', type: 'BillFutureSettleCashOutInDetail', table: 'bill_future_settle_cash_out_in_detail',
+      fields: [
+        ['id','Long','自增主键'], ['tradingday','String','发生日期 Date'], ['accountId','String','资金账号 AccountID'],
+        ['transferType','String','出入金类型 Type（银期转账等）'], ['deposit','BigDecimal','入金 Deposit'],
+        ['withdrawal','BigDecimal','出金 Withdrawal'], ['exchangeRate','BigDecimal','汇率 ExchangeRate'],
+        ['note','String','说明 Note'], ['insertTime','Date','入库时间，格式 yyyy-MM-dd HH:mm:ss']
+      ]
+    },
+    {
+      id: 'trade-detail', title: '成交明细', requestField: 'tradeDetailList', type: 'BillFutureSettleTradeDetail', table: 'bill_future_settle_trade_detail',
+      fields: [
+        ['id','Long','自增主键'], ['tradingday','String','成交日期 Date'], ['accountId','String','资金账号 AccountID'],
+        ['investUnit','String','投资单元 InvestUnit'], ['exchange','String','交易所 Exchange'], ['tradingCode','String','交易编码 tradingcode'],
+        ['product','String','品种 Product'], ['instrument','String','合约 Instrument'], ['buyOrSell','String','买/卖 B/S'],
+        ['speculationOrHedge','String','投/保 S/H'], ['price','BigDecimal','成交价 Price'], ['lots','Integer','手数 Lots'],
+        ['turnover','BigDecimal','成交额 Turnover'], ['openOrClose','String','开平 O/C'], ['fee','BigDecimal','手续费 Fee'],
+        ['realizedProfitLoss','BigDecimal','平仓盈亏 Realized P/L'], ['premiumReceivedPaid','BigDecimal','权利金收支 Premium Received/Paid'],
+        ['transactionNumber','String','成交序号 Trans.No.'], ['insertTime','Date','入库时间，格式 yyyy-MM-dd HH:mm:ss']
+      ]
+    },
+    {
+      id: 'closing-detail', title: '平仓明细', requestField: 'closingDetailList', type: 'BillFutureSettleClosingDetail', table: 'bill_future_settle_closing_detail',
+      fields: [
+        ['id','Long','自增主键'], ['tradingday','String','平仓日期 Close Date'], ['accountId','String','资金账号 AccountID'],
+        ['investUnit','String','投资单元 InvestUnit'], ['exchange','String','交易所 Exchange'], ['tradingCode','String','交易编码 tradingcode'],
+        ['product','String','品种 Product'], ['instrument','String','合约 Instrument'], ['openDate','String','开仓日期 Open Date'],
+        ['speculationOrHedge','String','投/保 S/H'], ['buyOrSell','String','买/卖 B/S'], ['lots','Integer','手数 Lots'],
+        ['positionOpenPrice','BigDecimal','开仓价 Pos. Open Price'], ['previousSettlement','BigDecimal','昨结算 Prev. Sttl'],
+        ['transactionPrice','BigDecimal','成交价 Trans. Price'], ['realizedProfitLoss','BigDecimal','平仓盈亏 Realized P/L'],
+        ['premiumReceivedPaid','BigDecimal','权利金收支 Premium Received/Paid'], ['insertTime','Date','入库时间，格式 yyyy-MM-dd HH:mm:ss']
+      ]
+    },
+    {
+      id: 'position-detail', title: '持仓明细', requestField: 'positionDetailList', type: 'BillFutureSettlePositionDetail', table: 'bill_future_settle_position_detail',
+      fields: [
+        ['id','Long','自增主键'], ['tradingday','String','交易日（文件头 Date）'], ['accountId','String','资金账号 AccountID'],
+        ['investUnit','String','投资单元 InvestUnit'], ['exchange','String','交易所 Exchange'], ['tradingCode','String','交易编码 tradingcode'],
+        ['product','String','品种 Product'], ['instrument','String','合约 Instrument'], ['openDate','String','开仓日期 Open Date'],
+        ['speculationOrHedge','String','投/保 S/H'], ['buyOrSell','String','买/卖 B/S'], ['positionLots','Integer','持仓量 Positon'],
+        ['positionOpenPrice','BigDecimal','开仓价 Pos. Open Price'], ['previousSettlement','BigDecimal','昨结算 Prev. Sttl'],
+        ['settlementPrice','BigDecimal','结算价 Settlement Price'], ['accumulatedProfitLoss','BigDecimal','浮动盈亏 Accum. P/L'],
+        ['markToMarketProfitLoss','BigDecimal','盯市盈亏 MTM P/L'], ['margin','BigDecimal','保证金 Margin'],
+        ['optionMarketValue','BigDecimal','期权市值 Market Value(Options)'], ['insertTime','Date','入库时间，格式 yyyy-MM-dd HH:mm:ss']
+      ]
+    },
+    {
+      id: 'position-summary', title: '持仓汇总', requestField: 'positionSummaryList', type: 'BillFutureSettlePositionSummary', table: 'bill_future_settle_position_summary',
+      fields: [
+        ['id','Long','自增主键'], ['tradingday','String','交易日（文件头 Date）'], ['accountId','String','资金账号 AccountID'],
+        ['investUnit','String','投资单元 InvestUnit'], ['tradingCode','String','交易编码 tradingcode'], ['product','String','品种 Product'],
+        ['instrument','String','合约 Instrument'], ['longPosition','Integer','买持 Long Pos.'], ['averageBuyPrice','BigDecimal','买开仓均价 Avg Buy Price'],
+        ['shortPosition','Integer','卖持 Short Pos.'], ['averageSellPrice','BigDecimal','卖开仓均价 Avg Sell Price'],
+        ['previousSettlement','BigDecimal','昨结算 Prev. Sttl'], ['settlementToday','BigDecimal','今结算 Sttl Today'],
+        ['markToMarketProfitLoss','BigDecimal','持仓盯市盈亏 MTM P/L'], ['marginOccupied','BigDecimal','保证金占用 Margin Occupied'],
+        ['speculationOrHedge','String','投/保 S/H'], ['longMarketValue','BigDecimal','多头期权市值 Market Value(Long)'],
+        ['shortMarketValue','BigDecimal','空头期权市值 Market Value(Short)'], ['insertTime','Date','入库时间，格式 yyyy-MM-dd HH:mm:ss']
+      ]
+    },
+    {
+      id: 'option-exercise', title: '期权执行明细', requestField: 'optionExerciseDetailList', type: 'BillFutureSettleOptionExerciseDetail', table: 'bill_future_settle_option_exercise_detail',
+      fields: [
+        ['id','Long','自增主键'], ['tradingday','String','成交日期 Date'], ['accountId','String','资金账号 AccountID'],
+        ['investUnit','String','投资单元 InvestUnit'], ['exchange','String','交易所 Exchange'], ['tradingCode','String','交易编码 tradingcode'],
+        ['product','String','品种 Product（白银期权等）'], ['instrument','String','合约 Instrument'], ['speculationOrHedge','String','投/保 S/H'],
+        ['buyOrSell','String','买/卖 B/S'], ['exerciseFlag','String','是否行权（期权执行/期权放弃）'], ['exerciseVolume','Integer','行权数量'],
+        ['exercisePrice','BigDecimal','行权价格'], ['exerciseAmount','BigDecimal','行权金额'], ['exerciseProfitLoss','BigDecimal','行权盈亏'],
+        ['exerciseFee','BigDecimal','行权手续费'], ['insertTime','Date','入库时间，格式 yyyy-MM-dd HH:mm:ss']
+      ]
+    },
+    {
+      id: 'option-trade', title: '期权成交明细', requestField: 'optionTradeDetailList', type: 'BillFutureSettleOptionTradeDetail', table: 'bill_future_settle_option_trade_detail',
+      fields: [
+        ['id','Long','自增主键'], ['tradingday','String','交易日期 Date'], ['accountId','String','资金账号（文件头资金账号）'],
+        ['exchange','String','交易所 Exchange（SSE/SZSE）'], ['underlying','String','标的证券 Underlying（510500/588000 等）'],
+        ['instrumentCode','String','合约编码 InstrumentCode'], ['instrumentId','String','合约代码 Instrument ID'], ['tradeId','String','成交编号 TradeID'],
+        ['buyOrSell','String','买/卖 B/S'], ['openOrClose','String','开/平 O/C'], ['cover','String','备兑 Cover'],
+        ['price','BigDecimal','成交价 Price'], ['lots','Integer','手数 Lots'], ['turnover','BigDecimal','成交额 Turnover'],
+        ['premiumReceivedPaid','BigDecimal','权利金收支 Premium Rec/Pay'], ['handlingFee','BigDecimal','经手费 Fee'],
+        ['settlementFee','BigDecimal','结算费 Settle.Fee'], ['insertTime','Date','入库时间，格式 yyyy-MM-dd HH:mm:ss']
+      ]
+    },
+    {
+      id: 'option-change', title: '期权持仓变动', requestField: 'optionPositionChangeList', type: 'BillFutureSettleOptionPositionChange', table: 'bill_future_settle_option_position_change',
+      fields: [
+        ['id','Long','自增主键'], ['tradingday','String','交易日期 Date'], ['accountId','String','资金账号（文件头资金账号）'],
+        ['exchange','String','交易所 Exchange'], ['underlying','String','标的证券 Underlying'], ['instrumentCode','String','合约编码 InstrumentCode'],
+        ['instrumentId','String','合约代码 Instrument ID'], ['cover','String','备兑 Cover'], ['positionDirection','String','持仓方向（权利仓/义务仓）'],
+        ['changeVolume','Integer','变动数量 ChangeVolume'], ['changeType','String','变动类型（期权开仓/平仓/仓位对冲等）'],
+        ['insertTime','Date','入库时间，格式 yyyy-MM-dd HH:mm:ss']
+      ]
+    },
+    {
+      id: 'option-summary', title: '期权持仓汇总', requestField: 'optionPositionSummaryList', type: 'BillFutureSettleOptionPositionSummary', table: 'bill_future_settle_option_position_summary',
+      fields: [
+        ['id','Long','自增主键'], ['tradingday','String','交易日期 Date'], ['accountId','String','资金账号（文件头资金账号）'],
+        ['exchange','String','交易所 Exchange'], ['underlying','String','标的证券 Underlying'], ['instrumentCode','String','合约编码 InstrumentCode'],
+        ['instrumentId','String','合约代码 Instrument ID'], ['cover','String','备兑 Cover'], ['longVolume','Integer','权利仓数量 Long Vol.'],
+        ['singleLongVolume','Integer','未组合权利仓数量 Single Long Vol.'], ['combineLongVolume','Integer','组合权利仓数量 Combine Long Vol.'],
+        ['shortVolume','Integer','义务仓数量 Short Vol.'], ['singleShortVolume','Integer','未组合义务仓数量 Single Short vol.'],
+        ['combineShortVolume','Integer','组合义务仓数量 Combine Short vol.'], ['marginOccupied','BigDecimal','保证金占用 Margin Occupied'],
+        ['settlementToday','BigDecimal','今结算 Sttl Today'], ['longMarketValue','BigDecimal','权利仓市值 Long Market Value'],
+        ['shortMarketValue','BigDecimal','义务仓市值 Short Market Value'], ['insertTime','Date','入库时间，格式 yyyy-MM-dd HH:mm:ss']
+      ]
+    },
+    {
+      id: 'option-position', title: '期权持仓明细', requestField: 'optionPositionDetailList', type: 'BillFutureSettleOptionPositionDetail', table: 'bill_future_settle_option_position_detail',
+      fields: [
+        ['id','Long','自增主键'], ['tradingday','String','交易日期 Date'], ['accountId','String','资金账号（文件头资金账号）'],
+        ['exchange','String','交易所 Exchange'], ['underlying','String','标的证券 Underlying'], ['instrumentCode','String','合约编码 InstrumentCode'],
+        ['instrumentId','String','合约代码 Instrument ID'], ['cover','String','备兑 Cover'], ['positionDirection','String','持仓方向（权利仓/义务仓）'],
+        ['openDate','String','开仓日期 OpenDate'], ['tradeId','String','成交编号 TradeID'], ['openPrice','BigDecimal','开仓价 Open Price'],
+        ['volume','Integer','持仓量 Volume'], ['singleVolume','Integer','未参与组合数量 Single Volume'],
+        ['combinationVolume','Integer','参与组合数量 Com Volume'], ['settlementToday','BigDecimal','今结算 Sttl Today'],
+        ['insertTime','Date','入库时间，格式 yyyy-MM-dd HH:mm:ss']
+      ]
+    },
+    {
+      id: 'option-combination', title: '期权组合持仓', requestField: 'optionCombinationPositionList', type: 'BillFutureSettleOptionCombinationPosition', table: 'bill_future_settle_option_combination_position',
+      fields: [
+        ['id','Long','自增主键'], ['tradingday','String','交易日期 Date'], ['accountId','String','资金账号（文件头资金账号）'],
+        ['exchange','String','交易所 Exchange'], ['combinationNumber','String','组合编号'], ['combinationStrategyCode','String','组合策略编码'],
+        ['volume','Integer','持仓量'], ['marginOccupied','BigDecimal','保证金占用'], ['combinationLegCount','Integer','组合成分数量'],
+        ['instrumentCode1','String','合约编码一'], ['instrumentId1','String','合约代码一'], ['cover1','String','备兑一'],
+        ['positionDirection1','String','持仓方向一'], ['volume1','Integer','持仓量一'], ['instrumentCode2','String','合约编码二'],
+        ['instrumentId2','String','合约代码二'], ['cover2','String','备兑二'], ['positionDirection2','String','持仓方向二'],
+        ['volume2','Integer','持仓量二'], ['insertTime','Date','入库时间，格式 yyyy-MM-dd HH:mm:ss']
+      ]
+    }
+  ];
+
+  const escapeHtml = value => String(value).replace(/[&<>"']/g, ch => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
+  })[ch]);
+
+  function requirement(field) {
+    if (field === 'tradingday' || field === 'accountId') return '<span class="required">是</span>';
+    if (field === 'id' || field === 'insertTime') return '<span class="ignored">忽略</span>';
+    return '<span class="optional">否</span>';
+  }
+
+  function renderModels(query = '') {
+    const keyword = query.trim().toLowerCase();
+    const container = document.getElementById('models');
+    container.innerHTML = models.map(model => {
+      const fields = model.fields.filter(field => !keyword || field.join(' ').toLowerCase().includes(keyword) ||
+        model.title.toLowerCase().includes(keyword) || model.requestField.toLowerCase().includes(keyword));
+      if (keyword && fields.length === 0) return '';
+      const rows = fields.map(([name, type, description]) => `
+        <tr>
+          <td><code>${escapeHtml(name)}</code></td>
+          <td>${escapeHtml(type)}</td>
+          <td>${requirement(name)}</td>
+          <td>${escapeHtml(description)}${name === 'tradingday' ? '；必须与顶层 tradingday 一致' : ''}${name === 'accountId' ? '；必须与顶层 accountId 一致' : ''}${name === 'id' || name === 'insertTime' ? '；客户端传值会被服务端清空' : ''}</td>
+        </tr>`).join('');
+      return `
+        <section class="model" id="${model.id}">
+          <div class="model-head">
+            <div><h3>${escapeHtml(model.title)} · ${escapeHtml(model.requestField)}[]</h3><p><code>${escapeHtml(model.type)}</code> → <code>${escapeHtml(model.table)}</code></p></div>
+            <span class="badge">${fields.length} 个字段</span>
+          </div>
+          <div class="table-wrap">
+            <table><thead><tr><th>字段</th><th>JSON 类型</th><th>必填/处理</th><th>说明</th></tr></thead><tbody>${rows}</tbody></table>
+          </div>
+        </section>`;
+    }).join('') || '<div class="card">没有匹配的字段。</div>';
+  }
+
+  document.getElementById('model-nav').innerHTML = models.map(model =>
+    `<a href="#${model.id}">${escapeHtml(model.title)}</a>`).join('');
+  renderModels();
+  document.getElementById('field-search').addEventListener('input', event => renderModels(event.target.value));
+</script>
+</body>
+</html>

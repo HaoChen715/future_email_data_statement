@@ -1,23 +1,17 @@
 import os
 import configparser
 from pathlib import Path
-from typing import Tuple
-from sqlalchemy import create_engine
-from sqlalchemy import text
-from sqlalchemy import URL
-from sqlalchemy.engine import Engine
-from src.future_email_data_statement.common.encrpty import EncryptionTool
 from src.future_email_data_statement.common.get_parent_path import ParentPath
 
 
-# 环境 -> 配置段 映射（数据库 / 文件目录）
-DB_CONFIG_MAP = {
-    "Trade": "DataBaseParams",
-    "Test": "TestDataBaseParams",
-}
+# 环境 -> 配置段 映射（文件目录 / 入库 API）
 FILE_PATH_CONFIG_MAP = {
     "Trade": "FilePath",
     "Test": "TestFilePath",
+}
+API_CONFIG_MAP = {
+    "Trade": "ApiParams",
+    "Test": "TestApiParams",
 }
 # 文件目录配置键名全集（与 auto_down_email 项目 data_paths.json 键名一致）
 FILE_PATH_KEYS = (
@@ -31,36 +25,21 @@ FILE_PATH_KEYS = (
 
 
 class GlobalFunc:
-    """全局配置与数据库连接类（风格沿用 future_data 项目，测试/生产环境隔离）。
+    """全局配置类（风格沿用 future_data 项目，测试/生产环境隔离）。
 
     由 main.py 读取 config/info.ini [RunParams] 的 Place 参数
     （Trade=生产 / Test=测试）传入后统一切换：
-        - 数据库连接   : info.ini 的 [DataBaseParams] / [TestDataBaseParams]
+        - 入库 API  : info.ini 的 [ApiParams] / [TestApiParams]
         - 文件落盘目录 : info.ini 的 [FilePath] / [TestFilePath]
-    数据库密码为 Fernet 密文，运行时解密。
+
+    对账单数据不再直连数据库，读写均通过 Open API 完成
+    （见 data_insert/api_client.py）。
     """
 
-    def __init__(
-        self,
-        statement_type: str = "Trade",
-        database: str = None,
-    ):
+    def __init__(self, statement_type: str = "Trade"):
         self.statement_type = statement_type
         self.current_dir = self.get_parent_path()
         self.config = self.load_config()
-        # 根据运行环境(Place)选择数据库配置段
-        db_config = DB_CONFIG_MAP.get(statement_type, "TestDataBaseParams")
-        self.db_user = self.config.get(db_config, "user")
-        key_file_path = os.path.join(self.current_dir, "config/secret.key")
-        decrpty = EncryptionTool(key_file_path)
-        # 密码为空时跳过解密（仅读取文件目录等无需数据库的场景，如数据清洗步骤）
-        raw_password = self.config.get(db_config, "password")
-        self.db_password = (
-            decrpty.decrypt_message(raw_password) if raw_password else ""
-        )
-        self.db_host = self.config.get(db_config, "host")
-        self.db_port = self.config.get(db_config, "port")
-        self.db_database = database or self.config.get(db_config, "database")
 
     def get_parent_path(self) -> Path:
         """返回项目根目录（含 pyproject.toml 或 config/info.ini）。"""
@@ -72,29 +51,6 @@ class GlobalFunc:
         config = configparser.ConfigParser()
         config.read(f"{self.current_dir}/config/info.ini", encoding="utf-8")
         return config
-
-    def connect_database(self) -> Tuple[Engine, str]:
-        """
-        连接数据库并获取数据库当前时间。
-
-        Returns:
-            Tuple[Engine, str]: (SQLAlchemy Engine, 数据库当前时间 "yyyy-mm-dd HH:MM:SS")。
-        """
-        url_object = URL.create(
-            "mysql+pymysql",
-            username=self.db_user,
-            password=self.db_password,  # plain (unescaped) text
-            host=self.db_host,
-            database=self.db_database,
-            port=int(self.db_port),
-        )
-        engine = create_engine(url_object)
-        query = text("SELECT CURRENT_TIMESTAMP")
-        with engine.connect() as connection:
-            result = connection.execute(query)
-            db_time = result.fetchone()[0]
-            db_time = db_time.strftime("%Y-%m-%d %H:%M:%S")
-        return engine, db_time
 
     def _file_config_section(self) -> str:
         """返回当前环境对应的文件目录配置段名。"""
@@ -133,3 +89,19 @@ class GlobalFunc:
                 else raw_path
             )
         return paths
+
+    def get_api_config(self) -> dict:
+        """
+        读取当前环境对应的入库 API 配置（[ApiParams]/[TestApiParams]）。
+
+        Returns:
+            dict: {base_url, timeout, token}；配置段缺失时返回默认值。
+        """
+        section = API_CONFIG_MAP.get(self.statement_type, "TestApiParams")
+        if not self.config.has_section(section):
+            return {"base_url": "", "timeout": 30, "token": ""}
+        return {
+            "base_url": self.config.get(section, "base_url", fallback="").strip(),
+            "timeout": self.config.getint(section, "timeout", fallback=30),
+            "token": self.config.get(section, "token", fallback="").strip(),
+        }

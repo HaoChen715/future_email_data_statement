@@ -7,24 +7,23 @@
 两个项目的共同特性：
 
 - 数据源文件按 **auto_down_email 的思路**从邮箱自动下载当日对账单附件；
-- 账号信息按 **future_data 的思路**从数据库视图 `v_config_bill_future_account` 获取；
+- 账号信息与数据入库均通过开发的 **Open API** 获取/写入（程序不再直连业务库）；
 - 采用 **auto_down_email 的账号匹配思路**将文件匹配并迁移到指定目录；
 - 数据清洗沿用 **auto_down_email 的 Statement 清洗基类思路**，将对账单解析为多个标准 DataFrame。
-
-后续的数据入库功能将在本阶段完成后继续开发。
 
 ## 功能概述
 
 | 阶段 | 模块 | 职责 |
 |------|------|------|
-| ① 启动初始化 | `BrokerInit`（datainit/broker_init.py） | 启动时按数据库视图中的券商列表预建 `resource/{券商}/` 目录，并生成环境专属的 `config/datapath_init_{Place}.json`（思路沿用 auto_down_email 项目） |
+| ① 启动初始化 | `BrokerInit`（datainit/broker_init.py） | 启动时通过 Open API `queryBrokerInit` 获取券商列表，预建 `resource/{券商}/` 目录，并生成环境专属的 `config/datapath_init_{Place}.json` |
 | ② 下载 | `Auto_DownLoad_Email`（email_download/email_download.py） | 登录 IMAP 邮箱、按日期搜索并下载当日全部附件 |
 | ③ 解压 | `UnZip`（unzip/unzip.py） | 压缩包（zip/rar）解压、直接文件拷贝到最终文件目录 |
-| ④ 匹配迁移 | `CheckAccountFile`（account_match/check_file.py） | 按数据库视图中的资金账号匹配文件，迁移到 `resource/{券商}/{交易日}/` 并备份历史目录 |
+| ④ 匹配迁移 | `CheckAccountFile`（account_match/check_file.py） | 通过 Open API `queryAccountList` 获取当日有效资金账号并匹配文件，迁移到 `resource/{券商}/{交易日}/` 并备份历史目录 |
 | ⑤ 数据清洗 | `CleanDataFile`（data_clean/clean_data.py） | 逐文件读取 `resource/{券商}/{交易日}/` 下的对账单，清洗为多个内置 DataFrame（不动原始文件） |
-| ⑥ 清洗入库 | `InsertDataFile`（data_insert/insert_data.py） | 内部完成清洗后，按券商模板映射为数据库表，整文件事务「先删后插」，写 `bill_future_settle_processing_log`，支持断点续跑 |
+| ⑥ 清洗入库 | `InsertDataFile`（data_insert/insert_data.py） | 内部完成清洗后，按券商模板映射为 API 请求体，逐文件调用 `settlementFileInsert` 全量覆盖入库；通过 `queryInsertSuccessAccountList` 支持断点续跑 |
 
-- 支持**生产 / 测试环境隔离**：由 `config/info.ini` 的 `[RunParams] Place` 参数统一切换数据库连接与全部文件落盘目录。
+- 对账单**读写均通过 Open API 完成，程序不再直连业务库**：券商/账号查询对应 3 个 GET 接口，整文件入库对应 `settlementFileInsert`（服务端按 `(tradingday, accountId)` 单事务先删后插，并同步维护处理日志）。接口清单见 [docs/期货对账单聚合入库接口文档.html](docs/期货对账单聚合入库接口文档.html)。
+- 支持**生产 / 测试环境隔离**：由 `config/info.ini` 的 `[RunParams] Place` 参数统一切换 API 地址与全部文件落盘目录。
 - 处理日期与执行步骤**通过命令行参数控制**（`main.py yyyymmdd [today|last] [steps...]`，风格沿用 auto_down_email 项目）：`today`=下载当天邮件，`last`=下载上一交易日邮件。
 - 按邮箱顺序**串行登录下载**，全部下载解压后再统一做账号匹配（与股票邮件下载程序一致，无多线程登录）。
 - 账号配置支持**有效期过滤**（start_date / end_date）与**已销户账号自动跳过**（remark 含"销户"）。
@@ -33,13 +32,13 @@
 
 1. `main.py` 读取命令行参数（yyyymmdd / today|last / steps）与 `config/info.ini [RunParams]`（Place）；
 2. 根据运行日计算上一交易日，确定邮件下载日（last 模式取上一交易日）；
-3. **启动初始化**：按数据库券商列表预建 `resource/{券商}/` 目录（记录到 `config/datapath_init_{Place}.json`）；
+3. **启动初始化**：通过 Open API `queryBrokerInit` 获取券商列表，预建 `resource/{券商}/` 目录（记录到 `config/datapath_init_{Place}.json`）；
 4. 按步骤执行：
    - **邮件下载**：登录 `config/email.json` 中配置的全部邮箱，搜索当日邮件并下载附件到 `email_download_root/{交易日}/`；
    - **解压**：压缩包解压、直接文件拷贝到 `unzip_final_root/{交易日}/`，异常压缩包移入 `unzip_question_root/`；
-   - **账号匹配**：查询视图 `v_config_bill_future_account`（当日有效账号），先将文件名按正则拆分为连续数字组合，账号完全等于其中某个数字组即判定为该账号文件，未命中再按文件内容（前 20 行）匹配；命中后迁移到 `resource_root/{broker}/{交易日}/`；
-   - **数据清洗**：按券商加载对应清洗类，将 `resource_root/{broker}/{交易日}/` 下的对账单逐文件读取、清洗为多个内置 DataFrame，供后续按数据库字段做列名转换与入库；
-   - **清洗入库**：内部先执行清洗，再按「券商模板 + 对账单类型 + 板块」映射到 `bill_future_settle_*` 表；以文件为一个事务，按每张表自身 `(tradingday, account_id)` 先删后插，成功后写处理日志。每次运行先清理当日 **Failed** 日志（失败账号重试），默认跳过当日已成功账号；需要**删除重新入库**时用 `--force`（或 `[RunParams] Force_redownload=True`）忽略成功日志全部重跑。`国君` 与 `国泰海通` 共用同一清洗模板，`broker` 列写实际券商名。
+   - **账号匹配**：调用 Open API `queryAccountList` 获取当日有效账号，先将文件名按正则拆分为连续数字组合，账号完全等于其中某个数字组即判定为该账号文件，未命中再按文件内容（前 20 行）匹配；命中后迁移到 `resource_root/{broker}/{交易日}/`；
+   - **数据清洗**：按券商加载对应清洗类，将 `resource_root/{broker}/{交易日}/` 下的对账单逐文件读取、清洗为多个内置 DataFrame，供后续映射为 API 请求体；
+   - **清洗入库**：内部先执行清洗，再按「券商模板 + 对账单类型 + 板块」映射为 13 张业务表的请求数组；逐文件调用 Open API `settlementFileInsert`（顶层 `tradingday + accountId`，服务端单事务先删后插并写处理日志）。运行前调用 `queryInsertSuccessAccountList` 获取当日已成功账号，默认跳过；需要**删除重新入库**时用 `--force`（或 `[RunParams] Force_redownload=True`）忽略成功日志全部重跑。`国君` 与 `国泰海通` 共用同一清洗模板，`broker` 列写实际券商名。
 
 ## 目录结构
 
@@ -48,7 +47,7 @@ main.py                               主入口：下载→解压→匹配迁移
 compile_so.py                         生产部署工具：将 src 下业务模块编译为 .so
 pyinstall.py                          一键打包：.so 编译 + PyInstaller + 发布包组装
 config/
-  info.ini                            运行/数据库/文件目录配置（[RunParams] 等，密码为 Fernet 密文）
+  info.ini                            运行/API/文件目录配置（[RunParams] 等）
   email.json                          邮箱账号配置（账号/口令均为 Fernet 密文）
   secret.key                          Fernet 密钥（本地生成，勿入库）
 config_template/                      部署配置模板（打包时随发布包分发，真实凭据不打包）
@@ -63,34 +62,42 @@ src/future_email_data_statement/
     statement_type.py                 对账单类型判断（期货/期权/证券现货，文件名前缀+内容特征）
     generate_key.py / generate_password.py  密钥与密文生成工具
   config/
-    globalfunc.py                     配置读取与数据库连接（Place 环境切换）
+    globalfunc.py                     配置读取（API 地址、文件目录，Place 环境切换）
   email_download/
     email_download.py                 邮件下载（含大邮件强化处理）
   unzip/
     unzip.py                          压缩包解压
   account_match/
-    check_file.py                     账号匹配与文件迁移
+    check_file.py                     账号匹配与文件迁移（API 查询有效账号）
   data_clean/
     clean_data.py                     数据清洗步骤入口：按券商逐文件清洗为内置 DataFrame
     datastatement.py                  券商清洗类动态调度（BROKER_IMPORT_MAP）
     tools/
       statement.py                    清洗基类：多编码读取/资金状况解析/|分隔表格切分
       guojun.py                       国君-交易结算单 txt 清洗（盯市/期权/证券现货三种格式）
+  data_insert/
+    api_client.py                     对账单 Open API 客户端（查询/整文件入库）
+    mapping.py                        清洗结果 -> 数据库表/接口字段 的映射规则
+    insert_data.py                    清洗入库步骤入口（映射后逐文件调用入库接口）
 ```
 
 ## 配置文件
 
-### config/info.ini（运行参数与连接、目录配置）
+### config/info.ini（运行参数、API 与目录配置）
 
 - `[RunParams]`：运行时参数
   - `Place`：运行环境，`Trade`=生产 / `Test`=测试（处理日期与执行步骤由命令行参数控制）
-- `[DataBaseParams]` / `[TestDataBaseParams]`：生产库 / 测试库（host / port / user / password / database）
+  - `Force_redownload`：`True` 时入库忽略已成功账号，全部重新解析入库
+- `[ApiParams]` / `[TestApiParams]`：生产 / 测试环境对账单 Open API 配置
+  - `base_url`：Open API 基础地址（不含结尾斜杠），如 `http://host:port`
+  - `timeout`：请求超时秒数，默认 30
+  - `token`：可选鉴权令牌（网关要求时填写，客户端以 `Authorization: Bearer <token>` 发送）
 - `[FilePath]` / `[TestFilePath]`：生产 / 测试环境文件目录（键名与 auto_down_email 项目 data_paths.json 一致）：
   - `email_download_root`：邮件附件下载根目录
   - `unzip_zip_root` / `unzip_extract_root` / `unzip_final_root` / `unzip_question_root`：解压各阶段目录
   - `resource_root`：账号匹配后对账单文件存放根目录
 
-> `Place=Trade` 时读取 `[DataBaseParams]` + `[FilePath]`，`Place=Test` 时读取 `[TestDataBaseParams]` + `[TestFilePath]`，
+> `Place=Trade` 时读取 `[ApiParams]` + `[FilePath]`，`Place=Test` 时读取 `[TestApiParams]` + `[TestFilePath]`，
 > 测试环境默认落在本地 `./test_data`、`./test_resource`，不会污染生产目录。
 
 ### config/email.json（邮箱配置）
@@ -169,12 +176,23 @@ pdm run python pyinstall.py
   清洗后 `基本资料.statement_type` 细分为 盯市 / 期权 / 证券现货，**入库时 盯市 归一为 期货**
   （见 `data_insert/mapping.py` 的 `STATEMENT_TYPE_STORE_MAP`）。
 - 只读取、不动原始文件：逐文件清洗为内置 DataFrame，以 `{文件名: data_frames_json}` 返回，
-  供后续按数据库字段做列名转换与入库。
+  供后续按 `data_insert/mapping.py` 映射为数据库表与 API 请求字段。
 - 单个文件清洗后分化成多个 DataFrame（`data_frames_json`）：
   - `基本资料`：交易日 / 资金账号 / 客户号 / 客户名称 / 券商 / 对账单类型（期货/期权/证券现货；盯市入库归一为期货）/ 制表日期 / 文件名；
   - `资金状况`：键值对标准化为单行宽表（英文列名，覆盖期货/期权/证券现货三种格式）；
   - `出入金明细` / `成交记录` / `平仓明细` / `持仓明细` / `持仓汇总` / `持仓变动` / `行权明细` / `组合持仓`：| 分隔表格按中文表头清洗为 DataFrame（汇总行已剔除，表内缺失资金账号列时自动补充）。
 - 新增券商时：在 `data_clean/tools/` 下实现继承 `Statement` 的清洗类，并在 `datastatement.py` 的 `BROKER_IMPORT_MAP` 注册中文券商名即可。
+
+## 数据入库（阶段⑥）
+
+- 入库方式：**通过 Open API `settlementFileInsert` 全量覆盖入库**，程序不再直连业务库。
+  - 每个对账单文件映射为一次入库请求：顶层 `tradingday + accountId`，其余 13 个业务数组显式提交（无数据提交空数组）；
+  - 服务端在同一事务内按 `(tradingday, accountId)` 删除 13 张业务表旧数据再写入，失败整体回滚，重复提交等价覆盖（幂等）；
+  - 处理日志由服务端同步维护，程序不再写日志表。
+- 断点续跑：运行前调用 `queryInsertSuccessAccountList` 获取当日已成功账号并跳过；`--force`（或 `[RunParams] Force_redownload=True`）忽略成功日志全部重跑，失败账号不在成功集合中会自然重试。
+- 字段映射见 `data_insert/mapping.py`（数据库列名 -> 接口 camelCase），整型列显式转整数、缺失值转 `null`。
+- 接口清单与字段定义见 [docs/期货对账单聚合入库接口文档.html](docs/期货对账单聚合入库接口文档.html) /
+  [docs/API对接-数据表与SQL清单.md](docs/API对接-数据表与SQL清单.md)。
 
 ## 日志
 
@@ -192,11 +210,8 @@ pdm run python pyinstall.py
   - 标准 `get_payload(decode=True)` 优先，失败后按 CTE 手工解码兜底；
   - 取件时校验 `RFC822.SIZE`，检测到服务器截断（或整封解析无附件）时改用 `BODYSTRUCTURE` 逐段（`BODY.PEEK[n]`）取件，绕开大邮件整体取件限制。
 
-## 数据库表（依赖）
+## 数据表（服务端依赖）
 
-- 账号配置视图：`v_config_bill_future_account`（使用字段：future_account_id / broker / start_date / end_date / remark 等）
-- 对账单数据表建表 SQL 见 [docs/数据库表结构设计.md](docs/数据库表结构设计.md) / [docs/create_tables.sql](docs/create_tables.sql)
-
-## 待完成
-
-- 数据入库（bill_future_settle_* 数据表）与 `bill_future_settle_processing_log` 断点续跑机制
+- 账号配置视图：`v_config_bill_future_account`（由 Open API 查询，使用字段：future_account_id / broker_id / start_date / end_date / remark 等）
+- 13 张对账单业务表与处理日志表 `bill_future_settle_processing_log` 均由服务端维护；
+  建表 SQL 见 [docs/create_tables.sql](docs/create_tables.sql) / [docs/数据库表结构设计.md](docs/数据库表结构设计.md)

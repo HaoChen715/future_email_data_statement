@@ -1,18 +1,18 @@
 import json
 import os
 
-import pandas as pd
-from sqlalchemy import text
-
 from src.future_email_data_statement.common.logger_init import LoggerInit
 from src.future_email_data_statement.config.globalfunc import GlobalFunc
+from src.future_email_data_statement.data_insert.api_client import (
+    BillFutureApiClient,
+)
 
 
 class BrokerInit:
     """券商目录初始化（思路沿用 auto_down_email_clean_to_statement 项目 broker_init.py）。
 
-    项目启动时按数据库视图 v_config_bill_future_account 中的券商列表，
-    在资源目录下预建 {resource_root}/{broker} 目录，并记录到环境专属的
+    项目启动时通过 Open API queryBrokerInit 获取券商列表，在资源目录下预建
+    {resource_root}/{broker} 目录，并记录到环境专属的
     config/datapath_init_{Place}.json，避免运行期因目录缺失而中断。
     """
 
@@ -22,11 +22,13 @@ class BrokerInit:
         self.init_date = init_date
         self.statement_type = statement_type
         self.resource_root = global_func.get_file_path("resource_root")
-        self.engine, _ = global_func.connect_database()
         logger_init = LoggerInit()
         self.logger = logger_init.logger_init(
             log_path=f"{self.current_dir}/logs/{self.init_date}.log",
             logger_name="broker_init_logger",
+        )
+        self.api = BillFutureApiClient(
+            logger=self.logger, **global_func.get_api_config()
         )
         # 环境专属的券商目录初始化记录文件（测试/生产各自维护，互不覆盖）
         self.datapath_init_path = os.path.join(
@@ -47,18 +49,8 @@ class BrokerInit:
         return {"Path": []} if not content else json.loads(content)
 
     def broker_init(self):
-        """按数据库券商列表预建资源目录，并将新增券商目录写入初始化记录文件。"""
-        select_sql = text(
-            "SELECT DISTINCT broker_id FROM v_config_bill_future_account"
-        )
-        with self.engine.connect() as connection:
-            result = connection.execute(select_sql)
-            broker_df = pd.DataFrame(
-                result.fetchall(), columns=result.keys()
-            )
-        broker_list = (
-            broker_df["broker_id"].dropna().astype(str).unique().tolist()
-        )
+        """按 API 券商列表预建资源目录，并将新增券商目录写入初始化记录文件。"""
+        broker_list = self.api.query_broker_init()
         self.logger.info(f"当前券商列表: {broker_list}")
 
         datapath_init = self._load_datapath_init()

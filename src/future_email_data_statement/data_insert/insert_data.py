@@ -5,20 +5,21 @@ from src.future_email_data_statement.common.get_parent_path import ParentPath
 from src.future_email_data_statement.common.logger_init import LoggerInit
 from src.future_email_data_statement.config.globalfunc import GlobalFunc
 from src.future_email_data_statement.data_clean.clean_data import CleanDataFile
-from src.future_email_data_statement.data_insert.db_writer import StatementDbWriter
+from src.future_email_data_statement.data_insert.api_client import (
+    BillFutureApiClient,
+)
 from src.future_email_data_statement.data_insert.mapping import (
     TEMPLATE_MAP,
     build_table_frames,
 )
-from src.future_email_data_statement.data_insert.processing_log import ProcessingLog
 
 
 class InsertDataFile:
     """对账单数据清洗入库步骤（insert_data）。
 
-    复用 CleanDataFile 完成清洗后，按券商模板将各板块映射为数据库表并以
-    「文件」为单位先删后插；写入 bill_future_settle_processing_log 记录状态，
-    重跑时跳过当日已成功账号。
+    复用 CleanDataFile 完成清洗后，按券商模板将各板块映射为数据库表，再以
+    「文件」为单位调用 Open API 整文件全量覆盖入库（服务端单事务先删后插）；
+    处理日志由服务端同步维护，重跑时通过接口查询当日已成功账号跳过。
     """
 
     def __init__(
@@ -38,7 +39,6 @@ class InsertDataFile:
                 [RunParams] Force_redownload；True 时忽略已成功日志全部重跑。
         """
         global_func = GlobalFunc(statement_type=statement_type)
-        self.engine, self.dtime = global_func.connect_database()
         self.resource_root = global_func.get_file_path("resource_root")
         parent_path = ParentPath()
         self.current_dir = parent_path.get_current_dir()
@@ -55,6 +55,9 @@ class InsertDataFile:
         self.logger = logger_init.logger_init(
             log_path=f"{self.current_dir}/logs/{self.running_day}.log",
             logger_name="future_data_insert",
+        )
+        self.api = BillFutureApiClient(
+            logger=self.logger, **global_func.get_api_config()
         )
 
     def run(self) -> dict:
@@ -104,15 +107,8 @@ class InsertDataFile:
                     f"当日存在数据的券商目录: {available or '无'}"
                 )
 
-        writer = StatementDbWriter(engine=self.engine, logger=self.logger)
-        processing_log = ProcessingLog(engine=self.engine)
-        # 2. 先清理当日失败日志，失败账号本次重新入库
-        deleted = processing_log.delete_failed(self.running_day)
-        if deleted:
-            self.logger.info(
-                f"已清理当日失败日志 {deleted} 条, 失败账号将重新入库"
-            )
-        # 3. 断点续跑：当日已成功账号跳过；force 时忽略日志全部重新入库
+        # 2. 断点续跑：通过接口查询当日已成功账号，重跑时跳过；
+        #    force 时忽略日志全部重新入库（失败的账号不在成功集合中，会自然重试）
         if self.force:
             self.logger.warning(
                 "Force_redownload=True，启用强制重新入库模式："
@@ -120,7 +116,9 @@ class InsertDataFile:
             )
             done_accounts = set()
         else:
-            done_accounts = processing_log.success_accounts(self.running_day)
+            done_accounts = self.api.query_insert_success_account_list(
+                self.running_day
+            )
             if done_accounts:
                 self.logger.info(
                     f"当日已成功入库账号 {len(done_accounts)} 个, 重跑时自动跳过"
@@ -166,14 +164,11 @@ class InsertDataFile:
                     stats["skipped"] += 1
                     continue
 
-                # 3. 整文件事务先删后插，并记录处理日志
-                ok, info = writer.write_file(table_frames)
-                status = "Success" if ok else "Failed"
-                processing_log.write(
+                # 整文件通过 API 全量覆盖入库（服务端单事务先删后插并写处理日志）
+                ok, info = self.api.settlement_file_insert(
                     tradingday=trading_day,
                     account_id=account_id,
-                    status=status,
-                    info=info,
+                    table_frames=table_frames,
                 )
                 if ok:
                     stats["inserted"] += 1

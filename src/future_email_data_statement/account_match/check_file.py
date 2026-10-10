@@ -6,11 +6,12 @@ import warnings
 
 import pandas as pd
 from openpyxl import load_workbook
-from sqlalchemy import text
 
-from src.future_email_data_statement.common.CheckTradingDay import CheckTradingDay
 from src.future_email_data_statement.config.globalfunc import GlobalFunc
 from src.future_email_data_statement.common.logger_init import LoggerInit
+from src.future_email_data_statement.data_insert.api_client import (
+    BillFutureApiClient,
+)
 
 
 # 忽略指定的 UserWarning
@@ -21,8 +22,9 @@ class CheckAccountFile:
     """
     账号匹配与文件迁移模块（思路沿用 auto_down_email 项目）。
 
-    账号信息来源为 future_data 项目的数据库视图 v_config_bill_future_account
-    （字段：future_account_id / broker_id / start_date / end_date 等）。
+    账号信息来源为 Open API queryAccountList（服务端读取视图
+    v_config_bill_future_account 并按有效期过滤；字段：futureAccountId / brokerId /
+    startDate / endDate 等，接口返回后映射为库表下划线命名）。
     匹配逻辑：先按文件名拆分出的连续数字组合精确匹配资金账号，再按文件内容
     （前20行）匹配；匹配成功后迁移到 resource/{broker}/{交易日}/ 并备份到历史目录。
     """
@@ -30,37 +32,49 @@ class CheckAccountFile:
     def __init__(self, running_day: str, statement_type: str = "Trade"):
         global_func = GlobalFunc(statement_type=statement_type)
         self.current_dir = global_func.get_parent_path()
-        self.engine, self.dtime = global_func.connect_database()
         # 文件迁移目录：资源目录（取自 info.ini [FilePath]/[TestFilePath]）
         self.destination_directory = global_func.get_file_path("resource_root")
         # 解压后的最终文件目录（随环境切换）
         self.final_file_dir = global_func.get_file_path("unzip_final_root")
         self.running_day = running_day
-        check_trading_day = CheckTradingDay()
-        self.previous_trading_day = check_trading_day.previous_trading_day(
-            date=self.running_day
-        )
-        # 与 auto_down_email 一致的有效期过滤：运行日 <= start_date 且 前一交易日 >= end_date
-        self.select_sql = text(
-            f"SELECT * FROM v_config_bill_future_account "
-            f"WHERE start_date<={self.running_day} AND end_date>={self.previous_trading_day} "
-        )
         logger_init = LoggerInit()
         self.logger = logger_init.logger_init(
             log_path=f"{self.current_dir}/logs/{self.running_day}.log",
             logger_name="checkaccountfile_logger",
         )
+        # 账号配置改由 Open API 查询（queryAccountList，服务端按有效期过滤）
+        self.api = BillFutureApiClient(
+            logger=self.logger, **global_func.get_api_config()
+        )
 
     def select_account_info(self) -> pd.DataFrame:
         """
-        查询数据库中当日有效的期货账号配置（视图 v_config_bill_future_account）。
+        通过 Open API 查询当日有效的期货账号配置。
 
         Returns:
-            pd.DataFrame: 含 future_account_id / broker_id 等字段的账号配置。
+            pd.DataFrame: 含 future_account_id / broker_id / remark 等字段的账号配置
+                （字段名由接口 camelCase 统一映射为库表下划线命名）。
         """
-        with self.engine.connect() as conn:
-            result = conn.execute(self.select_sql)
-            account_info = pd.DataFrame(result.fetchall(), columns=result.keys()).reset_index(drop=True)
+        accounts = self.api.query_account_list(self.running_day)
+        field_map = {
+            "futureAccountId": "future_account_id",
+            "futureName": "future_name",
+            "accountType": "account_type",
+            "brokerId": "broker_id",
+            "startDate": "start_date",
+            "endDate": "end_date",
+            "remark": "remark",
+        }
+        account_info = pd.DataFrame(
+            [
+                {
+                    target: account.get(source)
+                    for source, target in field_map.items()
+                }
+                for account in accounts
+            ],
+            columns=list(field_map.values()),
+        ).reset_index(drop=True)
         if account_info.empty:
             self.logger.warning("未查询到当日有效的期货账号配置")
         else:

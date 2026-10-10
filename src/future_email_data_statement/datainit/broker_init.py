@@ -22,6 +22,8 @@ class BrokerInit:
         self.init_date = init_date
         self.statement_type = statement_type
         self.resource_root = global_func.get_file_path("resource_root")
+        # 券商白名单: 仅白名单内券商视为已注册券商(用于建目录) 空集合表示不限制
+        self.broker_whitelist = global_func.get_broker_whitelist()
         logger_init = LoggerInit()
         self.logger = logger_init.logger_init(
             log_path=f"{self.current_dir}/logs/{self.init_date}.log",
@@ -48,10 +50,38 @@ class BrokerInit:
             content = f.read().strip()
         return {"Path": []} if not content else json.loads(content)
 
+    def _filter_brokers(self, all_brokers: list) -> list:
+        """按券商白名单过滤接口返回的券商列表。
+
+        Args:
+            all_brokers: 接口 queryBrokerInit 返回的全部券商。
+
+        Returns:
+            list: 白名单内的券商；白名单为空时返回全部券商。
+        """
+        if not self.broker_whitelist:
+            self.logger.info("未配置券商白名单, 全部券商视为已注册券商")
+            return list(all_brokers)
+        kept = [broker for broker in all_brokers if broker in self.broker_whitelist]
+        dropped = [
+            broker for broker in all_brokers if broker not in self.broker_whitelist
+        ]
+        missing = [
+            broker for broker in self.broker_whitelist if broker not in all_brokers
+        ]
+        self.logger.info(
+            f"券商白名单过滤: 白名单 {sorted(self.broker_whitelist)} | "
+            f"保留 {len(kept)} 个 {kept} | 过滤掉 {len(dropped)} 个 {dropped}"
+        )
+        if missing:
+            self.logger.warning(f"白名单中未在接口返回的券商: {missing}")
+        return kept
+
     def broker_init(self):
-        """按 API 券商列表预建资源目录，并将新增券商目录写入初始化记录文件。"""
-        broker_list = self.api.query_broker_init()
-        self.logger.info(f"当前券商列表: {broker_list}")
+        """按 API 券商列表（白名单过滤后）预建资源目录，并写入初始化记录文件。"""
+        all_brokers = self.api.query_broker_init()
+        self.logger.info(f"接口返回券商列表: {all_brokers}")
+        broker_list = self._filter_brokers(all_brokers)
 
         datapath_init = self._load_datapath_init()
         for broker in broker_list:

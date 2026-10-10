@@ -37,6 +37,8 @@ class CheckAccountFile:
         # 解压后的最终文件目录（随环境切换）
         self.final_file_dir = global_func.get_file_path("unzip_final_root")
         self.running_day = running_day
+        # 券商白名单: 仅白名单内券商视为已注册券商(用于账号过滤) 空集合表示不限制
+        self.broker_whitelist = global_func.get_broker_whitelist()
         logger_init = LoggerInit()
         self.logger = logger_init.logger_init(
             log_path=f"{self.current_dir}/logs/{self.running_day}.log",
@@ -56,6 +58,7 @@ class CheckAccountFile:
                 （字段名由接口 camelCase 统一映射为库表下划线命名）。
         """
         accounts = self.api.query_account_list(self.running_day)
+        accounts = self._filter_accounts(accounts)
         field_map = {
             "futureAccountId": "future_account_id",
             "futureName": "future_name",
@@ -80,6 +83,55 @@ class CheckAccountFile:
         else:
             self.logger.info(f"查询到 {len(account_info)} 个有效期货账号配置")
         return account_info
+
+    def _filter_accounts(self, accounts: list) -> list:
+        """按券商白名单过滤接口返回的账号配置。
+
+        Args:
+            accounts: 接口 queryAccountList 返回的账号 DTO 列表（camelCase）。
+
+        Returns:
+            list: 白名单内券商的账号；白名单为空时返回全部账号。
+        """
+        if not self.broker_whitelist:
+            self.logger.info("未配置券商白名单, 不进行券商过滤")
+            kept = list(accounts)
+        else:
+            kept = [
+                account
+                for account in accounts
+                if str(account.get("brokerId")) in self.broker_whitelist
+            ]
+            dropped = [
+                account
+                for account in accounts
+                if str(account.get("brokerId")) not in self.broker_whitelist
+            ]
+            self.logger.info(
+                f"券商白名单过滤: 白名单 {sorted(self.broker_whitelist)} | "
+                f"保留 {len(kept)} 个账号, 过滤掉 {len(dropped)} 个"
+            )
+            if dropped:
+                dropped_detail = ", ".join(
+                    f"{account.get('futureAccountId')}({account.get('brokerId')})"
+                    for account in dropped
+                )
+                self.logger.info(
+                    f"被白名单过滤掉的账号 {len(dropped)} 个: {dropped_detail}"
+                )
+        self._log_retained_accounts(kept)
+        return kept
+
+    def _log_retained_accounts(self, accounts: list) -> None:
+        """输出过滤后留存的账号（账号-券商），便于核对当次匹配范围。"""
+        if not accounts:
+            self.logger.warning("券商过滤后无任何账号留存")
+            return
+        detail = ", ".join(
+            f"{account.get('futureAccountId')}({account.get('brokerId')})"
+            for account in accounts
+        )
+        self.logger.info(f"过滤后留存账号 {len(accounts)} 个: {detail}")
 
     def load_file_names(self, source_dir):
         try:

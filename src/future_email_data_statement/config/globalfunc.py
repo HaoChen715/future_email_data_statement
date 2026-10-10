@@ -1,4 +1,5 @@
 import os
+import re
 import configparser
 from pathlib import Path
 from src.future_email_data_statement.common.get_parent_path import ParentPath
@@ -89,6 +90,23 @@ class GlobalFunc:
                 else raw_path
             )
         return paths
+
+    def get_broker_whitelist(self) -> set:
+        """
+        读取券商白名单（[BrokerFilter] brokers）。
+
+        仅白名单内的券商视为「已注册券商」，用于生成券商目录与账号匹配过滤。
+
+        Returns:
+            set: 券商名称集合；未配置时返回空集合（表示不限制）。
+        """
+        raw = self.config.get("BrokerFilter", "brokers", fallback="")
+        # 支持英文/中文逗号与换行分隔
+        return {
+            name.strip()
+            for name in re.split(r"[,\n，]", raw)
+            if name.strip()
+        }
 
     def get_api_config(self) -> dict:
         """

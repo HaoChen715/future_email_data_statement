@@ -88,6 +88,10 @@ src/future_email_data_statement/
 - `[RunParams]`：运行时参数
   - `Place`：运行环境，`Trade`=生产 / `Test`=测试（处理日期与执行步骤由命令行参数控制）
   - `Force_redownload`：`True` 时入库忽略已成功账号，全部重新解析入库
+- `[BrokerFilter]`：券商白名单（仅列表中券商视为「已注册券商」）
+  - `brokers`：逗号分隔的券商名，如 `国君,国泰海通`；留空表示不限制（全部券商）
+  - 生效范围：券商目录初始化（仅白名单券商建目录）、账号匹配（仅白名单券商账号参与匹配）；
+    过滤后留存的账号会输出到日志便于核对
 - `[ApiParams]` / `[TestApiParams]`：生产 / 测试环境对账单 Open API 配置（网关签名鉴权，见 [docs/apiDemo.py](docs/apiDemo.py)）
   - `base_url`：Open API 基础地址（含上下文路径），如 `http://192.168.166.4/agent-monitor-boot`
   - `timeout`：请求超时秒数，默认 30

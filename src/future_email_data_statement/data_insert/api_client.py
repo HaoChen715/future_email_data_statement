@@ -12,14 +12,30 @@
 否则未提交类别的旧数据会被清空。处理日志由服务端在同一接口内维护。
 """
 
+import hashlib
 import json
 import math
+import ssl
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 
 import numpy as np
 import pandas as pd
+
+# 网关鉴权（见 docs/apiDemo.py）：signature = md5(appKey + appSecret + timestamp)
+DEFAULT_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36"
+)
+
+
+def _md5_encrypt(text: str) -> str:
+    """MD5 十六进制摘要（与网关签名算法一致）。"""
+    md5 = hashlib.md5()
+    md5.update(text.encode("utf-8"))
+    return md5.hexdigest()
 
 # 数据库表名 -> 入库接口请求体数组字段名
 TABLE_TO_REQUEST_FIELD = {
@@ -96,7 +112,12 @@ def _frame_records(df: pd.DataFrame) -> list:
 
 
 class BillFutureApiClient:
-    """期货对账单 Open API 轻量客户端（基于标准库 urllib，无额外依赖）。"""
+    """期货对账单 Open API 轻量客户端（基于标准库 urllib，无额外依赖）。
+
+    网关鉴权头与 docs/apiDemo.py 一致：
+        signature = md5(appKey + appSecret + timestamp)，单位为毫秒，
+        每次请求即时生成，随 appKey / timestamp 一起放入请求头。
+    """
 
     BROKER_INIT_PATH = "/openApi/billFutureApi/queryBrokerInit"
     ACCOUNT_LIST_PATH = "/openApi/billFutureApi/queryAccountList"
@@ -108,30 +129,52 @@ class BillFutureApiClient:
         logger,
         base_url: str = "",
         timeout: int = 30,
-        token: str = "",
-        token_header: str = "Authorization",
-        token_prefix: str = "Bearer ",
+        app_key: str = "",
+        app_secret: str = "",
+        user_agent: str = DEFAULT_USER_AGENT,
+        verify_ssl: bool = True,
     ):
         """初始化 API 客户端。
 
         Args:
             logger: 日志记录器。
-            base_url: Open API 基础地址（可含结尾斜杠）。
+            base_url: Open API 基础地址（含上下文路径，可含结尾斜杠）。
             timeout: 请求超时秒数。
-            token: 可选鉴权令牌（网关要求时填写）。
-            token_header: 令牌请求头名称，默认 Authorization。
-            token_prefix: 令牌前缀，默认 "Bearer "。
+            app_key: 网关 appKey。
+            app_secret: 网关 appSecret。
+            user_agent: 请求 User-Agent。
+            verify_ssl: 是否校验 HTTPS 证书（内网自签证书时设为 False）。
         """
         self.logger = logger
         self.base_url = (base_url or "").strip().rstrip("/")
         self.timeout = int(timeout) if timeout else 30
-        self.token = (token or "").strip()
-        self.token_header = token_header
-        self.token_prefix = token_prefix
+        self.app_key = (app_key or "").strip()
+        self.app_secret = (app_secret or "").strip()
+        self.user_agent = user_agent or DEFAULT_USER_AGENT
+        # 内网自签证书场景（对应 apiDemo 的 verify=False）跳过证书校验
+        self.ssl_context = None
+        if not verify_ssl:
+            self.ssl_context = ssl.create_default_context()
+            self.ssl_context.check_hostname = False
+            self.ssl_context.verify_mode = ssl.CERT_NONE
         if not self.base_url:
             raise ValueError(
                 "未配置入库 API 地址，请在 config/info.ini 对应环境段填写 base_url"
             )
+        if not self.app_key or not self.app_secret:
+            raise ValueError(
+                "未配置 API 鉴权，请在 config/info.ini 对应环境段填写 app_key / app_secret"
+            )
+
+    def _sign(self) -> dict:
+        """生成网关鉴权头（每次请求即时计算，避免时间戳过期）。"""
+        timestamp = int(time.time() * 1000)
+        signature = _md5_encrypt(f"{self.app_key}{self.app_secret}{timestamp}")
+        return {
+            "appKey": self.app_key,
+            "signature": signature,
+            "timestamp": str(timestamp),
+        }
 
     def _request(self, method: str, path: str, params: dict = None,
                  body: dict = None) -> dict:
@@ -152,9 +195,12 @@ class BillFutureApiClient:
         url = self.base_url + path
         if params:
             url = f"{url}?{urllib.parse.urlencode(params)}"
-        headers = {"Content-Type": "application/json;charset=utf-8"}
-        if self.token:
-            headers[self.token_header] = f"{self.token_prefix}{self.token}"
+        headers = {
+            "Content-Type": "application/json;charset=utf-8",
+            "User-Agent": self.user_agent,
+            "Accept": "application/json",
+        }
+        headers.update(self._sign())
         data = (
             json.dumps(body, ensure_ascii=False).encode("utf-8")
             if body is not None
@@ -164,7 +210,9 @@ class BillFutureApiClient:
             url, data=data, headers=headers, method=method
         )
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            with urllib.request.urlopen(
+                request, timeout=self.timeout, context=self.ssl_context
+            ) as response:
                 raw = response.read().decode("utf-8")
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", errors="ignore") if e.fp else ""

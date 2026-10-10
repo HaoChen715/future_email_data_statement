@@ -88,10 +88,13 @@ src/future_email_data_statement/
 - `[RunParams]`：运行时参数
   - `Place`：运行环境，`Trade`=生产 / `Test`=测试（处理日期与执行步骤由命令行参数控制）
   - `Force_redownload`：`True` 时入库忽略已成功账号，全部重新解析入库
-- `[ApiParams]` / `[TestApiParams]`：生产 / 测试环境对账单 Open API 配置
-  - `base_url`：Open API 基础地址（不含结尾斜杠），如 `http://host:port`
+- `[ApiParams]` / `[TestApiParams]`：生产 / 测试环境对账单 Open API 配置（网关签名鉴权，见 [docs/apiDemo.py](docs/apiDemo.py)）
+  - `base_url`：Open API 基础地址（含上下文路径），如 `http://192.168.166.4/agent-monitor-boot`
   - `timeout`：请求超时秒数，默认 30
-  - `token`：可选鉴权令牌（网关要求时填写，客户端以 `Authorization: Bearer <token>` 发送）
+  - `app_key` / `app_secret`：网关分配的密钥
+  - `user_agent`：可选，请求 User-Agent（默认与 apiDemo 一致）
+  - `verify_ssl`：是否校验 HTTPS 证书，内网自签证书时设为 `False`
+  - 签名规则：`signature = md5(app_key + app_secret + timestamp(毫秒))`，程序每次请求即时生成并随 `appKey` / `signature` / `timestamp` 请求头发送
 - `[FilePath]` / `[TestFilePath]`：生产 / 测试环境文件目录（键名与 auto_down_email 项目 data_paths.json 一致）：
   - `email_download_root`：邮件附件下载根目录
   - `unzip_zip_root` / `unzip_extract_root` / `unzip_final_root` / `unzip_question_root`：解压各阶段目录

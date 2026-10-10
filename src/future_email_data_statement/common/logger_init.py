@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 
 
 class LoggerInit:
@@ -49,7 +50,8 @@ class LoggerInit:
             for handler in logger.handlers
         ):
             # 创建控制台处理器，输出到标准输出
-            stream_handler = logging.StreamHandler()
+            # (前端/调度器通常只捕获 stdout, 输出到 stderr 会导致下载过程"静默")
+            stream_handler = logging.StreamHandler(stream=sys.stdout)
             stream_handler.setFormatter(formatter)
             logger.addHandler(stream_handler)
 

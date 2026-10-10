@@ -6,6 +6,7 @@ import os
 import quopri
 import re
 import shutil
+import time
 import traceback
 import uuid
 from datetime import datetime, timedelta
@@ -842,6 +843,13 @@ class Auto_DownLoad_Email:
                 break
             blob.extend(chunk)
             offset += len(chunk)
+            if declared_size:
+                self.logger.info(
+                    f"分块取回中: {offset}/{declared_size} 字节 "
+                    f"({offset * 100 // declared_size}%)"
+                )
+            else:
+                self.logger.info(f"分块取回中: 已获取 {offset} 字节")
             if declared_size and offset >= declared_size:
                 break
             if not declared_size and len(chunk) < chunk_size:
@@ -863,6 +871,11 @@ class Auto_DownLoad_Email:
             bs_data, declared_size = self._fetch_message_info(mail, email_id)
 
             # 整封邮件取回：一次性 BODY[]，失败回退分块取回
+            size_hint = f"{declared_size} 字节" if declared_size else "大小未知"
+            self.logger.info(
+                f"邮件 ID: {email_id} 正在取回正文（{size_hint}），请稍候..."
+            )
+            fetch_start = time.time()
             raw_email = self._fetch_body_once(mail, email_id)
             if not raw_email:
                 self.logger.warning("整封一次性取回失败，改用分块取回")
@@ -874,6 +887,11 @@ class Auto_DownLoad_Email:
                 return self._download_via_bodystructure(
                     mail, email_id, bs_data, download_dir
                 )
+
+            self.logger.info(
+                f"邮件 ID: {email_id} 正文取回完成"
+                f"（{len(raw_email)} 字节，耗时 {time.time() - fetch_start:.1f}s）"
+            )
 
             # 截断检测：服务器返回的字节数明显少于 RFC822.SIZE
             if declared_size is not None and len(raw_email) < declared_size:
@@ -984,17 +1002,26 @@ class Auto_DownLoad_Email:
                     self.logger.warning(f"邮箱 {user} 未找到当日邮件")
                     continue
 
-                self.logger.info(f"找到 {len(email_ids)} 封符合条件的邮件")
+                self.logger.info(
+                    f"邮箱 {user} 找到 {len(email_ids)} 封符合条件的邮件，开始下载附件"
+                )
 
                 # 分批次处理
+                total_emails = len(email_ids)
+                processed = 0
                 BATCH_SIZE = 20
-                for idx in range(0, len(email_ids), BATCH_SIZE):
+                for idx in range(0, total_emails, BATCH_SIZE):
                     batch = email_ids[idx: idx + BATCH_SIZE]
                     self.logger.info(
-                        f"处理批次 {idx // BATCH_SIZE + 1}/{(len(email_ids) - 1) // BATCH_SIZE + 1}"
+                        f"处理批次 {idx // BATCH_SIZE + 1}/{(total_emails - 1) // BATCH_SIZE + 1}"
                     )
 
                     for email_id in batch:
+                        processed += 1
+                        self.logger.info(
+                            f"邮箱 {user} [{processed}/{total_emails}] "
+                            f"开始下载邮件 ID={email_id}"
+                        )
                         total_attachments += self.download_attachments(
                             mail, email_id, download_dir
                         )

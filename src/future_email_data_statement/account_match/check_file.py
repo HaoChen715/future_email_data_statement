@@ -84,8 +84,28 @@ class CheckAccountFile:
             self.logger.info(f"查询到 {len(account_info)} 个有效期货账号配置")
         return account_info
 
+    @staticmethod
+    def _broker_of(account: dict) -> str:
+        """取账号的券商名并去除首尾空白（None 视为空串）。"""
+        value = account.get("brokerId")
+        return "" if value is None else str(value).strip()
+
+    @staticmethod
+    def _account_brief(account: dict) -> str:
+        """账号简要信息（账号/券商/类型/有效期/备注），用于过滤日志定位。"""
+        return (
+            f"{account.get('futureAccountId')}"
+            f"(券商={account.get('brokerId')!r}, "
+            f"类型={account.get('accountType')!r}, "
+            f"有效期={account.get('startDate')}~{account.get('endDate')}, "
+            f"备注={account.get('remark')!r})"
+        )
+
     def _filter_accounts(self, accounts: list) -> list:
         """按券商白名单过滤接口返回的账号配置。
+
+        仅当账号的 brokerId（去除首尾空格后）完全等于白名单中的券商名时才保留。
+        brokerId 为空/None 或不在白名单内的账号都会被过滤，并在日志中列出。
 
         Args:
             accounts: 接口 queryAccountList 返回的账号 DTO 列表（camelCase）。
@@ -93,44 +113,47 @@ class CheckAccountFile:
         Returns:
             list: 白名单内券商的账号；白名单为空时返回全部账号。
         """
+        self.logger.info(f"券商白名单过滤前, 接口返回账号 {len(accounts)} 个")
         if not self.broker_whitelist:
             self.logger.info("未配置券商白名单, 不进行券商过滤")
             kept = list(accounts)
         else:
-            kept = [
-                account
-                for account in accounts
-                if str(account.get("brokerId")) in self.broker_whitelist
-            ]
-            dropped = [
-                account
-                for account in accounts
-                if str(account.get("brokerId")) not in self.broker_whitelist
-            ]
+            kept, dropped = [], []
+            for account in accounts:
+                if self._broker_of(account) in self.broker_whitelist:
+                    kept.append(account)
+                else:
+                    dropped.append(account)
             self.logger.info(
                 f"券商白名单过滤: 白名单 {sorted(self.broker_whitelist)} | "
                 f"保留 {len(kept)} 个账号, 过滤掉 {len(dropped)} 个"
             )
             if dropped:
                 dropped_detail = ", ".join(
-                    f"{account.get('futureAccountId')}({account.get('brokerId')})"
-                    for account in dropped
+                    self._account_brief(account) for account in dropped
                 )
                 self.logger.info(
                     f"被白名单过滤掉的账号 {len(dropped)} 个: {dropped_detail}"
+                )
+            empty_broker = [
+                account for account in accounts if not self._broker_of(account)
+            ]
+            if empty_broker:
+                self.logger.warning(
+                    f"其中 {len(empty_broker)} 个账号的 brokerId 为空, 已按未注册券商过滤: "
+                    + ", ".join(
+                        self._account_brief(account) for account in empty_broker
+                    )
                 )
         self._log_retained_accounts(kept)
         return kept
 
     def _log_retained_accounts(self, accounts: list) -> None:
-        """输出过滤后留存的账号（账号-券商），便于核对当次匹配范围。"""
+        """输出过滤后留存的账号（账号/券商/类型等），便于核对当次匹配范围。"""
         if not accounts:
             self.logger.warning("券商过滤后无任何账号留存")
             return
-        detail = ", ".join(
-            f"{account.get('futureAccountId')}({account.get('brokerId')})"
-            for account in accounts
-        )
+        detail = ", ".join(self._account_brief(account) for account in accounts)
         self.logger.info(f"过滤后留存账号 {len(accounts)} 个: {detail}")
 
     def load_file_names(self, source_dir):
@@ -181,8 +204,16 @@ class CheckAccountFile:
             return set()
 
         def match_text(text: str) -> set:
-            # 以换行拼接单元格，避免账号数字跨单元格边界被误判命中
-            return {account_id for account_id in candidates if account_id in text}
+            # 账号必须作为独立的数字串出现，避免被更长的账号"包含"而误命中。
+            # 例如期权账号 9980009876 内含期货账号 80009876，纯子串匹配会把
+            # 期权报文误判给期货账号，导致期货账号被标记已匹配、实际却没有入库。
+            return {
+                account_id
+                for account_id in candidates
+                if re.search(
+                    rf"(?<!\d){re.escape(account_id)}(?!\d)", text
+                )
+            }
 
         def dataframe_to_text(df: pd.DataFrame) -> str:
             # pandas 3.0 下 DataFrame.astype(str) 会把缺失值保留为 float('nan')，
@@ -192,12 +223,18 @@ class CheckAccountFile:
 
         async def search_in_txt():
             # 资金账号为 ASCII 数字，utf-8/gbk/gb18030/big5 等编码对 ASCII 字节的
-            # 表示完全一致；直接按字节匹配，避免因文件编码不统一而解码报错
+            # 表示完全一致；直接按字节匹配，避免因文件编码不统一而解码报错。
+            # 同样要求账号前后不是数字，避免长账号包含短账号造成误命中。
             with open(file_path, "rb") as file:
                 content = file.read()
             found = set()
             for account_id in candidates:
-                if account_id.encode("ascii", errors="ignore") in content:
+                pattern = re.compile(
+                    rb"(?<!\d)"
+                    + re.escape(account_id.encode("ascii", errors="ignore"))
+                    + rb"(?!\d)"
+                )
+                if pattern.search(content):
                     found.add(account_id)
             return found
 
@@ -249,9 +286,18 @@ class CheckAccountFile:
     async def check_file_account(self, account_info: pd.DataFrame):
         # 账号 -> 券商 映射（跳过已销户账号）
         if "remark" in account_info.columns:
-            account_info = account_info[
-                ~account_info["remark"].astype(str).str.contains("销户")
-            ].reset_index(drop=True)
+            closed_mask = account_info["remark"].astype(str).str.contains("销户")
+            closed_accounts = account_info[closed_mask]
+            if not closed_accounts.empty:
+                detail = ", ".join(
+                    f"{row['future_account_id']}"
+                    f"(券商={row['broker_id']}, 备注={row['remark']})"
+                    for _, row in closed_accounts.iterrows()
+                )
+                self.logger.info(
+                    f"跳过已销户账号 {len(closed_accounts)} 个: {detail}"
+                )
+            account_info = account_info[~closed_mask].reset_index(drop=True)
         account_broker_dict = dict(
             zip(
                 account_info["future_account_id"].astype(str),

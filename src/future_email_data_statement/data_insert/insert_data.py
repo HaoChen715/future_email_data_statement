@@ -141,7 +141,10 @@ class InsertDataFile:
                 stats["files"] += 1
                 basic = frames.get("基本资料")
                 if basic is None or basic.empty:
-                    self.logger.warning(f"文件 {filename} 缺少基本资料, 跳过")
+                    self.logger.warning(
+                        f"文件 {filename} 缺少基本资料, 跳过"
+                        f"（未调用入库接口, 不产生处理日志）"
+                    )
                     stats["skipped"] += 1
                     continue
                 account_id = str(basic.iloc[0]["account_id"])
@@ -159,12 +162,18 @@ class InsertDataFile:
                 )
                 if not table_frames:
                     self.logger.warning(
-                        f"文件 {filename} 无可入库数据, 跳过"
+                        f"文件 {filename} 账号 {account_id} 无可入库数据, "
+                        f"跳过（未调用入库接口, 不产生处理日志）"
                     )
                     stats["skipped"] += 1
                     continue
 
                 # 整文件通过 API 全量覆盖入库（服务端单事务先删后插并写处理日志）
+                self.logger.info(
+                    f"[入库] 文件 {filename} 券商 {broker} 账号 {account_id} "
+                    f"交易日 {trading_day} 涉及 {len(table_frames)} 张表, "
+                    f"调用入库接口"
+                )
                 ok, info = self.api.settlement_file_insert(
                     tradingday=trading_day,
                     account_id=account_id,

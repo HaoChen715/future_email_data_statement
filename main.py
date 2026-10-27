@@ -1,6 +1,7 @@
 import asyncio
 import configparser
 import os
+import re
 import sys
 import time
 import traceback
@@ -23,6 +24,7 @@ if BASE_DIR not in sys.path:
 
 from src.future_email_data_statement.account_match.check_file import CheckAccountFile
 from src.future_email_data_statement.common.CheckTradingDay import CheckTradingDay
+from src.future_email_data_statement.common.logger_init import setup_console_log
 from src.future_email_data_statement.data_clean.clean_data import CleanDataFile
 from src.future_email_data_statement.data_insert.insert_data import InsertDataFile
 from src.future_email_data_statement.datainit.broker_init import BrokerInit
@@ -300,10 +302,23 @@ def _setup_builtin_cert():
             print("❌ 未找到 certifi，无法加载任何证书（如遇 SSL 错误请安装 certifi）")
 
 
-# 启动前自动注入证书配置
-_setup_builtin_cert()
+def _setup_run_log() -> str:
+    """接管 stdout/stderr，把运行期全部输出留存到 logs/runtime_{运行日}.log。
+
+    运行日取命令行第一个参数（yyyymmdd），缺省使用当前日期。
+    """
+    run_day = time.strftime("%Y%m%d")
+    if len(sys.argv) > 1 and re.fullmatch(r"\d{8}", sys.argv[1]):
+        run_day = sys.argv[1]
+    log_path = os.path.join(BASE_DIR, "logs", f"runtime_{run_day}.log")
+    setup_console_log(log_path)
+    print(f"[main] 运行日志文件: {log_path}")
+    return log_path
 
 
 if __name__ == "__main__":
+    # 先接管 stdout/stderr，再执行证书注入与主流程，确保所有输出都落盘
+    _setup_run_log()
+    _setup_builtin_cert()
     main()
     print("程序已退出。")

@@ -3,6 +3,54 @@ import os
 import sys
 
 
+class TeeStream:
+    """将写入同时转发到原控制台流与日志文件。
+
+    用于接管 sys.stdout / sys.stderr，使 print、日志控制台输出、traceback
+    等所有运行时输出都同时显示在前端并留存到同一个日志文件。
+    """
+
+    def __init__(self, original, log_file):
+        self._original = original
+        self._log_file = log_file
+
+    def write(self, message):
+        if self._original is not None:
+            self._original.write(message)
+            self._original.flush()
+        if self._log_file is not None:
+            self._log_file.write(message)
+            self._log_file.flush()
+
+    def flush(self):
+        if self._original is not None:
+            self._original.flush()
+        if self._log_file is not None:
+            self._log_file.flush()
+
+    def __getattr__(self, name):
+        # isatty/fileno/encoding 等属性委托给原控制台流
+        if self._original is not None:
+            return getattr(self._original, name)
+        raise AttributeError(name)
+
+
+def setup_console_log(log_path: str):
+    """接管 stdout/stderr，把前端显示与后端输出统一追加写入日志文件。
+
+    Args:
+        log_path: 运行时日志文件路径（目录不存在会自动创建）。
+
+    Returns:
+        已打开的日志文件对象。
+    """
+    os.makedirs(os.path.dirname(os.path.abspath(log_path)), exist_ok=True)
+    log_file = open(log_path, "a", encoding="utf-8", buffering=1)
+    sys.stdout = TeeStream(sys.__stdout__, log_file)
+    sys.stderr = TeeStream(sys.__stderr__, log_file)
+    return log_file
+
+
 class LoggerInit:
     """日志初始化工具类。"""
 

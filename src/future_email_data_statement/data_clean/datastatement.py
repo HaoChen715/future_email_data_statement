@@ -12,10 +12,12 @@ class DataStatement(Statement):
     """
 
     # 券商中文名 -> (模块文件名, 类名) 映射
-    # 国君与国泰海通实际为同一家，共用国君清洗模板，仅 broker 取值不同
+    # 国君、国泰海通、国海、海通共用国君清洗模板，仅 broker 取值不同
     BROKER_IMPORT_MAP = {
         "国君": ("guojun", "GuoJun"),
         "国泰海通": ("guojun", "GuoJun"),
+        "国海": ("guojun", "GuoJun"),
+        "海通": ("guojun", "GuoJun"),
     }
 
     def __init__(

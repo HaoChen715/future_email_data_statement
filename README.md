@@ -197,6 +197,7 @@ pdm run python pyinstall.py
   - 服务端在同一事务内按 `(tradingday, accountId)` 删除 13 张业务表旧数据再写入，失败整体回滚，重复提交等价覆盖（幂等）；
   - 处理日志由服务端同步维护，程序不再写日志表。
 - 断点续跑：运行前调用 `queryInsertSuccessAccountList` 获取当日已成功账号并跳过；`--force`（或 `[RunParams] Force_redownload=True`）忽略成功日志全部重跑，失败账号不在成功集合中会自然重试。
+- 结果明细：入库结束后汇总输出「未检测到对账单文件、本次未入库的账号」「检测到文件但本次跳过/失败的账号」「无法解析基本资料的文件」，账号明细含券商、类型、有效期、备注。
 - 字段映射见 `data_insert/mapping.py`（数据库列名 -> 接口 camelCase），整型列显式转整数、缺失值转 `null`。
 - 接口清单与字段定义见 [docs/期货对账单聚合入库接口文档.html](docs/期货对账单聚合入库接口文档.html) /
   [docs/API对接-数据表与SQL清单.md](docs/API对接-数据表与SQL清单.md)。

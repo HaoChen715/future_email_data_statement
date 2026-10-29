@@ -22,7 +22,7 @@
 | ⑤ 数据清洗 | `CleanDataFile`（data_clean/clean_data.py） | 逐文件读取 `resource/{券商}/{交易日}/` 下的对账单，清洗为多个内置 DataFrame（不动原始文件） |
 | ⑥ 清洗入库 | `InsertDataFile`（data_insert/insert_data.py） | 内部完成清洗后，按券商模板映射为 API 请求体，逐文件调用 `settlementFileInsert` 全量覆盖入库；通过 `queryInsertSuccessAccountList` 支持断点续跑 |
 
-- 对账单**读写均通过 Open API 完成，程序不再直连业务库**：券商/账号查询对应 3 个 GET 接口，整文件入库对应 `settlementFileInsert`（服务端按 `(tradingday, accountId)` 单事务先删后插，并同步维护处理日志）。接口清单见 [docs/期货对账单聚合入库接口文档.html](docs/期货对账单聚合入库接口文档.html)。
+- 对账单**读写均通过 Open API 完成，程序不再直连业务库**：券商/账号查询对应 3 个 GET 接口，整文件入库对应 `settlementFileInsert`（服务端按 `(tradingday, accountId)` 单事务先删后插，并同步维护处理日志）。接口清单见 [docs/期货对账单聚合入库接口文档.html](docs/期货对账单聚合入库接口文档.html)；本次新增交割明细与日志 logInfo 的对接说明见 [docs/API对接更新-交割明细与日志logInfo.md](docs/API对接更新-交割明细与日志logInfo.md)。
 - 支持**生产 / 测试环境隔离**：由 `config/info.ini` 的 `[RunParams] Place` 参数统一切换 API 地址与全部文件落盘目录。
 - 处理日期与执行步骤**通过命令行参数控制**（`main.py yyyymmdd [today|last] [steps...]`，风格沿用 auto_down_email 项目）：`today`=下载当天邮件，`last`=下载上一交易日邮件。
 - 按邮箱顺序**串行登录下载**，全部下载解压后再统一做账号匹配（与股票邮件下载程序一致，无多线程登录）。
@@ -38,7 +38,7 @@
    - **解压**：压缩包解压、直接文件拷贝到 `unzip_final_root/{交易日}/`，异常压缩包移入 `unzip_question_root/`；
    - **账号匹配**：调用 Open API `queryAccountList` 获取当日有效账号，先将文件名按正则拆分为连续数字组合，账号完全等于其中某个数字组即判定为该账号文件，未命中再按文件内容（前 20 行）匹配；命中后迁移到 `resource_root/{broker}/{交易日}/`；
    - **数据清洗**：按券商加载对应清洗类，将 `resource_root/{broker}/{交易日}/` 下的对账单逐文件读取、清洗为多个内置 DataFrame，供后续映射为 API 请求体；
-   - **清洗入库**：内部先执行清洗，再按「券商模板 + 对账单类型 + 板块」映射为 13 张业务表的请求数组；逐文件调用 Open API `settlementFileInsert`（顶层 `tradingday + accountId`，服务端单事务先删后插并写处理日志）。运行前调用 `queryInsertSuccessAccountList` 获取当日已成功账号，默认跳过；需要**删除重新入库**时用 `--force`（或 `[RunParams] Force_redownload=True`）忽略成功日志全部重跑。`国君` 与 `国泰海通` 共用同一清洗模板，`broker` 列写实际券商名。
+   - **清洗入库**：内部先执行清洗，再按「券商模板 + 对账单类型 + 板块」映射为 14 张业务表的请求数组；逐文件调用 Open API `settlementFileInsert`（顶层 `tradingday + accountId`，服务端单事务先删后插并写处理日志）。按**报文真实交易日**调用 `queryInsertSuccessAccountList` 获取已成功账号，默认跳过；需要**删除重新入库**时用 `--force`（或 `[RunParams] Force_redownload=True`）忽略成功日志全部重跑。`国君` / `国泰海通` / `国海` / `海通` 共用同一清洗模板，`broker` 列写实际券商名。
 
 ## 目录结构
 
@@ -98,6 +98,7 @@ src/future_email_data_statement/
   - `app_key` / `app_secret`：网关分配的密钥
   - `user_agent`：可选，请求 User-Agent（默认与 apiDemo 一致）
   - `verify_ssl`：是否校验 HTTPS 证书，内网自签证书时设为 `False`
+  - `log_path`：开发新增的写处理日志接口路径（用于写 `log_type=对账单文件`），留空则不写
   - 签名规则：`signature = md5(app_key + app_secret + timestamp(毫秒))`，程序每次请求即时生成并随 `appKey` / `signature` / `timestamp` 请求头发送
 - `[FilePath]` / `[TestFilePath]`：生产 / 测试环境文件目录（键名与 auto_down_email 项目 data_paths.json 一致）：
   - `email_download_root`：邮件附件下载根目录
@@ -187,20 +188,23 @@ pdm run python pyinstall.py
 - 单个文件清洗后分化成多个 DataFrame（`data_frames_json`）：
   - `基本资料`：交易日 / 资金账号 / 客户号 / 客户名称 / 券商 / 对账单类型（期货/期权/证券现货；盯市入库归一为期货）/ 制表日期 / 文件名；
   - `资金状况`：键值对标准化为单行宽表（英文列名，覆盖期货/期权/证券现货三种格式）；
-  - `出入金明细` / `成交记录` / `平仓明细` / `持仓明细` / `持仓汇总` / `持仓变动` / `行权明细` / `组合持仓`：| 分隔表格按中文表头清洗为 DataFrame（汇总行已剔除，表内缺失资金账号列时自动补充）。
+  - `出入金明细` / `成交记录` / `平仓明细` / `持仓明细` / `持仓汇总` / `持仓变动` / `行权明细` / `组合持仓` / `交割明细`：| 分隔表格按中文表头清洗为 DataFrame（汇总行已剔除，表内缺失资金账号列时自动补充）。
 - 新增券商时：在 `data_clean/tools/` 下实现继承 `Statement` 的清洗类，并在 `datastatement.py` 的 `BROKER_IMPORT_MAP` 注册中文券商名即可。
 
 ## 数据入库（阶段⑥）
 
 - 入库方式：**通过 Open API `settlementFileInsert` 全量覆盖入库**，程序不再直连业务库。
-  - 每个对账单文件映射为一次入库请求：顶层 `tradingday + accountId`，其余 13 个业务数组显式提交（无数据提交空数组）；
-  - 服务端在同一事务内按 `(tradingday, accountId)` 删除 13 张业务表旧数据再写入，失败整体回滚，重复提交等价覆盖（幂等）；
-  - 处理日志由服务端同步维护，程序不再写日志表。
-- 断点续跑：运行前调用 `queryInsertSuccessAccountList` 获取当日已成功账号并跳过；`--force`（或 `[RunParams] Force_redownload=True`）忽略成功日志全部重跑，失败账号不在成功集合中会自然重试。
-- 结果明细：入库结束后汇总输出「未检测到对账单文件、本次未入库的账号」「检测到文件但本次跳过/失败的账号」「无法解析基本资料的文件」，账号明细含券商、类型、有效期、备注。
+  - 每个对账单文件映射为一次入库请求：顶层 `tradingday + accountId`，其余 14 个业务数组显式提交（无数据提交空数组）；
+  - 服务端在同一事务内按 `(tradingday, accountId)` 删除 14 张业务表旧数据再写入，失败整体回滚，重复提交等价覆盖（幂等）；
+  - 处理日志由服务端同步维护，程序不再写日志表；
+  - 检测到文件并解析出账号/交易日后，若配置了 `log_path`，额外写一条 `log_type=对账单文件`、`log_status=Success` 的处理日志（需开发新增该接口）。
+- 断点续跑：按**报文内真实交易日**调用 `queryInsertSuccessAccountList` 获取该日已成功账号并跳过；`--force`（或 `[RunParams] Force_redownload=True`）忽略成功日志全部重跑，失败账号不在成功集合中会自然重试。
+- 结果明细：入库结束后**按报文交易日**汇总输出「未检测到对账单文件、本次未入库的账号」「检测到文件但本次跳过/失败的账号」「无法解析基本资料的文件」，账号明细含券商、类型、有效期、备注。
 - 字段映射见 `data_insert/mapping.py`（数据库列名 -> 接口 camelCase），整型列显式转整数、缺失值转 `null`。
 - 接口清单与字段定义见 [docs/期货对账单聚合入库接口文档.html](docs/期货对账单聚合入库接口文档.html) /
   [docs/API对接-数据表与SQL清单.md](docs/API对接-数据表与SQL清单.md)。
+- 本次新增 **交割明细** `bill_future_settle_delivery_detail`（`deliveryDetailList`）与 **处理日志 logInfo 传参**，
+  详见 [docs/API对接更新-交割明细与日志logInfo.md](docs/API对接更新-交割明细与日志logInfo.md)。
 
 ## 日志
 
@@ -223,5 +227,5 @@ pdm run python pyinstall.py
 ## 数据表（服务端依赖）
 
 - 账号配置视图：`v_config_bill_future_account`（由 Open API 查询，使用字段：future_account_id / broker_id / start_date / end_date / remark 等）
-- 13 张对账单业务表与处理日志表 `bill_future_settle_processing_log` 均由服务端维护；
+- 14 张对账单业务表与处理日志表 `bill_future_settle_processing_log` 均由服务端维护；
   建表 SQL 见 [docs/create_tables.sql](docs/create_tables.sql) / [docs/数据库表结构设计.md](docs/数据库表结构设计.md)

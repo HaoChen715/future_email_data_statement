@@ -165,6 +165,27 @@ GUOJUN_DETAIL_RULES = {
                 "资金账号": "account_id",
             },
         },
+        "交割明细": {
+            "table": "bill_future_settle_delivery_detail",
+            "rename": {
+                "交割日期": "tradingday",
+                "投资单元": "invest_unit",
+                "交易所": "exchange",
+                "交易编码": "trading_code",
+                "品种": "product",
+                "交割期": "delivery_month",
+                "投/保": "speculation_or_hedge",
+                "买/卖": "buy_or_sell",
+                "实提数量": "delivered_quantity",
+                "剩余数量": "residual_quantity",
+                "交割价格": "delivery_price",
+                "交割金额": "delivery_amount",
+                "交割手续费": "delivery_fee",
+                "开仓均价": "average_open_price",
+                "交割盈亏": "delivery_profit_loss",
+                "资金账号": "account_id",
+            },
+        },
     },
     "期权": {
         "成交记录": {
@@ -311,6 +332,9 @@ NUMERIC_COLUMNS = {
     # 行权
     "exercise_volume", "exercise_price", "exercise_amount",
     "exercise_profit_loss", "exercise_fee",
+    # 交割
+    "delivered_quantity", "residual_quantity", "delivery_price",
+    "delivery_amount", "delivery_fee", "average_open_price",
     # 期权
     "handling_fee", "settlement_fee", "change_volume",
     "long_volume", "single_long_volume", "combine_long_volume",

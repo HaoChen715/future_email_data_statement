@@ -394,7 +394,36 @@ CREATE TABLE IF NOT EXISTS bill_future_settle_option_combination_position (
   COMMENT='期货对账单-期权组合持仓表';
 
 -- ---------------------------------------------------------------------
--- 14. 入库日志（bill_future_settle_processing_log，断点续跑）
+-- 14. 交割明细（期货）
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS bill_future_settle_delivery_detail (
+    id                      BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '自增主键',
+    tradingday              CHAR(8)         NOT NULL                COMMENT '交割日期 Date',
+    account_id              VARCHAR(32)     NOT NULL                COMMENT '资金账号 AccountID',
+    invest_unit             VARCHAR(32)     DEFAULT NULL            COMMENT '投资单元 InvestUnit',
+    exchange                VARCHAR(16)     DEFAULT NULL            COMMENT '交易所 Exchange',
+    trading_code            VARCHAR(32)     DEFAULT NULL            COMMENT '交易编码 tradingcode',
+    product                 VARCHAR(64)     DEFAULT NULL            COMMENT '品种 Product',
+    delivery_month          VARCHAR(16)     DEFAULT NULL            COMMENT '交割期 Del.Mth',
+    speculation_or_hedge    VARCHAR(8)      DEFAULT NULL            COMMENT '投/保 S/H',
+    buy_or_sell             VARCHAR(8)      DEFAULT NULL            COMMENT '买/卖 B/S',
+    delivered_quantity      INT             DEFAULT NULL            COMMENT '实提数量 Delivered Qty',
+    residual_quantity       INT             DEFAULT NULL            COMMENT '剩余数量 Residual',
+    delivery_price          DECIMAL(20,6)   DEFAULT NULL            COMMENT '交割价格 Delivery Price',
+    delivery_amount         DECIMAL(20,2)   DEFAULT NULL            COMMENT '交割金额 Delivery Amount',
+    delivery_fee            DECIMAL(20,2)   DEFAULT NULL            COMMENT '交割手续费 Delivery Fee',
+    average_open_price      DECIMAL(20,6)   DEFAULT NULL            COMMENT '开仓均价 Avg Opening Price',
+    delivery_profit_loss    DECIMAL(20,2)   DEFAULT NULL            COMMENT '交割盈亏 Realized P/L at Delivery',
+    insert_time             TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '入库时间',
+    PRIMARY KEY (id),
+    KEY idx_tradingday_account (tradingday, account_id),
+    KEY idx_product (product),
+    KEY idx_delivery_month (delivery_month)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+  COMMENT='期货对账单-交割明细表';
+
+-- ---------------------------------------------------------------------
+-- 15. 入库日志（bill_future_settle_processing_log，断点续跑）
 --     字段沿用 future_data 项目 bill_processing_log 的设计
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS bill_future_settle_processing_log (

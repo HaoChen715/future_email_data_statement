@@ -113,8 +113,8 @@ class GlobalFunc:
         读取当前环境对应的入库 API 配置（[ApiParams]/[TestApiParams]）。
 
         Returns:
-            dict: {base_url, timeout, app_key, app_secret, user_agent, verify_ssl}；
-                配置段缺失时返回默认值。
+            dict: {base_url, timeout, app_key, app_secret, user_agent,
+                verify_ssl, log_path}；配置段缺失时返回默认值。
         """
         section = API_CONFIG_MAP.get(self.statement_type, "TestApiParams")
         if not self.config.has_section(section):
@@ -125,6 +125,7 @@ class GlobalFunc:
                 "app_secret": "",
                 "user_agent": "",
                 "verify_ssl": True,
+                "log_path": "",
             }
         return {
             "base_url": self.config.get(section, "base_url", fallback="").strip(),
@@ -137,4 +138,5 @@ class GlobalFunc:
             "verify_ssl": self.config.getboolean(
                 section, "verify_ssl", fallback=True
             ),
+            "log_path": self.config.get(section, "log_path", fallback="").strip(),
         }

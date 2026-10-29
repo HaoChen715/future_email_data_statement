@@ -30,6 +30,7 @@ class Statement:
         "持仓变动",
         "行权明细",
         "组合持仓",
+        "交割明细",
     )
 
     def __init__(self, statement_day: str, resource_data_path: str):

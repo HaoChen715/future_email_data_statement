@@ -7,8 +7,8 @@
 - GET  /openApi/billFutureApi/queryInsertSuccessAccountList 指定日期入库成功账号
 - POST /openApi/billFutureApi/settlementFileInsert         整文件全量覆盖入库
 
-入库接口为全量快照语义：服务端先按顶层 (tradingday, accountId) 删除 13 张业务表
-旧数据，再写入各数组；因此调用方必须显式提交全部 13 个数组（缺失按空数组处理），
+入库接口为全量快照语义：服务端先按顶层 (tradingday, accountId) 删除 14 张业务表
+旧数据，再写入各数组；因此调用方必须显式提交全部 14 个数组（缺失按空数组处理），
 否则未提交类别的旧数据会被清空。处理日志由服务端在同一接口内维护。
 """
 
@@ -52,9 +52,10 @@ TABLE_TO_REQUEST_FIELD = {
     "bill_future_settle_option_position_summary": "optionPositionSummaryList",
     "bill_future_settle_option_position_detail": "optionPositionDetailList",
     "bill_future_settle_option_combination_position": "optionCombinationPositionList",
+    "bill_future_settle_delivery_detail": "deliveryDetailList",
 }
 
-# 全部数组字段：入库为全量快照，缺失数组会被服务端清空，故每次显式提交全部 13 个
+# 全部数组字段：入库为全量快照，缺失数组会被服务端清空，故每次显式提交全部 14 个
 ALL_REQUEST_FIELDS = tuple(TABLE_TO_REQUEST_FIELD.values())
 
 # 整型列（服务端对应 Integer）：JSON 必须为整数，避免 DataFrame 因缺失值转成 1.0
@@ -65,6 +66,7 @@ INTEGER_COLUMNS = {
     "short_volume", "single_short_volume", "combine_short_volume",
     "volume", "single_volume", "combination_volume",
     "combination_leg_count", "volume1", "volume2",
+    "delivered_quantity", "residual_quantity",
 }
 
 
@@ -133,6 +135,7 @@ class BillFutureApiClient:
         app_secret: str = "",
         user_agent: str = DEFAULT_USER_AGENT,
         verify_ssl: bool = True,
+        log_path: str = "",
     ):
         """初始化 API 客户端。
 
@@ -144,6 +147,8 @@ class BillFutureApiClient:
             app_secret: 网关 appSecret。
             user_agent: 请求 User-Agent。
             verify_ssl: 是否校验 HTTPS 证书（内网自签证书时设为 False）。
+            log_path: 写处理日志接口路径（开发新增，用于 log_type=对账单文件；
+                留空表示不写）。
         """
         self.logger = logger
         self.base_url = (base_url or "").strip().rstrip("/")
@@ -151,6 +156,7 @@ class BillFutureApiClient:
         self.app_key = (app_key or "").strip()
         self.app_secret = (app_secret or "").strip()
         self.user_agent = user_agent or DEFAULT_USER_AGENT
+        self.log_path = (log_path or "").strip()
         # 内网自签证书场景（对应 apiDemo 的 verify=False）跳过证书校验
         self.ssl_context = None
         if not verify_ssl:
@@ -324,3 +330,52 @@ class BillFutureApiClient:
         total = result.get("totalRecordCount")
         message = result.get("message") or payload.get("message") or "期货对账单入库成功"
         return True, f"{message}({total if total is not None else 0} 行)"
+
+    def write_processing_log(
+        self,
+        tradingday: str,
+        account_id: str,
+        log_type: str,
+        log_status: str,
+        log_info: str = "",
+    ) -> tuple:
+        """写入一条处理日志（如 log_type=对账单文件）。
+
+        说明：该接口为开发待新增接口，路径由配置 [ApiParams] log_path 指定；
+        请求体按处理日志字段设计，log_time / log_date 由服务端生成。
+
+        Args:
+            tradingday: 报文真实交易日（YYYYMMDD）。
+            account_id: 资金账号。
+            log_type: 日志类型（如「对账单文件」）。
+            log_status: Success / Failed。
+            log_info: 成功信息或失败原因。
+
+        Returns:
+            tuple: (是否成功, 结果信息)；未配置接口路径时返回 (False, 提示)。
+        """
+        if not self.log_path:
+            return False, "未配置处理日志接口路径(log_path)"
+        body = {
+            "tradingday": str(tradingday),
+            "accountId": str(account_id),
+            "accountType": "期货",
+            "logType": log_type,
+            "logStatus": log_status,
+            "logInfo": log_info or "",
+        }
+        try:
+            payload = self._request("POST", self.log_path, body=body)
+        except Exception as e:
+            self.logger.error(
+                f"写处理日志失败(logType={log_type}, 账号={account_id}): "
+                f"{type(e).__name__}: {e}"
+            )
+            return False, f"API写日志失败: {type(e).__name__}: {e}"
+        if payload.get("success") is False:
+            message = payload.get("message") or f"code={payload.get('code')}"
+            self.logger.error(
+                f"写处理日志返回失败(logType={log_type}, 账号={account_id}): {message}"
+            )
+            return False, f"API写日志失败: {message}"
+        return True, payload.get("message") or "处理日志写入成功"

@@ -37,6 +37,8 @@ class CheckAccountFile:
         # 解压后的最终文件目录（随环境切换）
         self.final_file_dir = global_func.get_file_path("unzip_final_root")
         self.running_day = running_day
+        # 只扫描/匹配配置中允许的文件格式，其余格式直接跳过
+        self.file_extensions = global_func.get_file_extensions()
         # 券商白名单: 仅白名单内券商视为已注册券商(用于账号过滤) 空集合表示不限制
         self.broker_whitelist = global_func.get_broker_whitelist()
         logger_init = LoggerInit()
@@ -158,14 +160,63 @@ class CheckAccountFile:
 
     def load_file_names(self, source_dir):
         try:
-            files = [file for file in os.listdir(source_dir)]
+            all_files = os.listdir(source_dir)
+            files = [
+                file
+                for file in all_files
+                if os.path.splitext(file)[1].lower() in self.file_extensions
+            ]
+            skipped = len(all_files) - len(files)
+            if skipped:
+                self.logger.info(
+                    f"[文件扫描] 跳过 {skipped} 个非目标格式文件 "
+                    f"(允许格式: {sorted(self.file_extensions)})"
+                )
             if not files:
-                print("目录下不存在文件")
-                files = []
+                self.logger.warning(
+                    f"目录下不存在目标格式文件: {source_dir}"
+                )
         except Exception as e:
-            print("源文件地址出错: %s", e)
+            self.logger.error(f"源文件地址出错: {e}")
             files = []
         return files
+
+    def _guess_trading_day(self, file_path: str, file_name: str) -> str:
+        """推断报文真实交易日：文件名日期 -> txt 内容日期 -> 运行日兜底。"""
+        match = re.search(r"(20\d{6})", file_name)
+        if match:
+            return match.group(1)
+        if file_name.lower().endswith(".txt"):
+            try:
+                with open(
+                    file_path, "r", encoding="gb18030", errors="ignore"
+                ) as file:
+                    head = file.read(8192)
+                match = re.search(r"日期\s*Date[：:]\s*(\d{8})", head)
+                if match:
+                    return match.group(1)
+            except OSError:
+                pass
+        self.logger.warning(
+            f"文件 {file_name} 未能从文件名/内容解析交易日, "
+            f"匹配日志使用运行日 {self.running_day}"
+        )
+        return self.running_day
+
+    def _log_file_match(
+        self, account_id: str, file_name: str, file_path: str, broker_id: str
+    ) -> None:
+        """匹配到文件时立即写入 log_type=对账单文件 的成功日志。"""
+        if not self.api.log_path:
+            return
+        tradingday = self._guess_trading_day(file_path, file_name)
+        self.api.write_processing_log(
+            tradingday=tradingday,
+            account_id=account_id,
+            log_type="对账单文件",
+            log_status="Success",
+            log_info=f"检测到对账单文件: {file_name} (券商={broker_id})",
+        )
 
     def account_in_file_name(self, file_name: str, account_id: str) -> bool:
         """按正则拆分文件名，连续数字组成一个整体；账号完全等于其中某个数字组即判定匹配。
@@ -337,6 +388,9 @@ class CheckAccountFile:
                     f"账号 {account_id}（券商 {broker_id}）"
                 )
                 self.move_file(file_path, None, broker_id)
+                self._log_file_match(
+                    account_id, file_name, file_path, broker_id
+                )
 
             # 第二步：文件内容搜索资金账号（前20行，每文件仅读取一次）
             remaining_accounts = account_ids - matched_accounts
@@ -353,6 +407,9 @@ class CheckAccountFile:
                     f"账号 {account_id}（券商 {broker_id}）"
                 )
                 self.move_file(file_path, None, broker_id)
+                self._log_file_match(
+                    account_id, file_name, file_path, broker_id
+                )
 
         # 未被任何文件命中的账号统一告警
         unmatched_accounts = [

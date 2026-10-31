@@ -186,8 +186,8 @@ class InsertDataFile:
 
         if not self.api.log_path:
             self.logger.warning(
-                "未配置写处理日志接口 log_path, 将不写 log_type=对账单文件 日志; "
-                "开发新增接口后在 config/info.ini 对应环境段填写"
+                "未配置写处理日志接口 log_path, 将不写 对账单文件/对账单数据 "
+                "的自定义日志; 开发新增接口后在 config/info.ini 对应环境段填写"
             )
         for broker, files in clean_results.items():
             template = TEMPLATE_MAP.get(broker)
@@ -216,16 +216,6 @@ class InsertDataFile:
                     )
                     trading_day = self.running_day
                 seen_by_day.setdefault(trading_day, set()).add(account_id)
-
-                # 检测到文件后写一条 log_type=对账单文件 的处理日志
-                if self.api.log_path:
-                    self.api.write_processing_log(
-                        tradingday=trading_day,
-                        account_id=account_id,
-                        log_type="对账单文件",
-                        log_status="Success",
-                        log_info=f"检测到对账单文件: {filename}",
-                    )
 
                 if account_id in success_accounts(trading_day):
                     skipped_reasons[(trading_day, account_id)] = (

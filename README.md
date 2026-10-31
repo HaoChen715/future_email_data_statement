@@ -36,7 +36,7 @@
 4. 按步骤执行：
    - **邮件下载**：登录 `config/email.json` 中配置的全部邮箱，搜索当日邮件并下载附件到 `email_download_root/{交易日}/`；
    - **解压**：压缩包解压、直接文件拷贝到 `unzip_final_root/{交易日}/`，异常压缩包移入 `unzip_question_root/`；
-   - **账号匹配**：调用 Open API `queryAccountList` 获取当日有效账号，先将文件名按正则拆分为连续数字组合，账号完全等于其中某个数字组即判定为该账号文件，未命中再按文件内容（前 20 行）匹配；命中后迁移到 `resource_root/{broker}/{交易日}/`；
+   - **账号匹配**：调用 Open API `queryAccountList` 获取当日有效账号；只扫描 `File_extensions` 允许的文件格式；先将文件名按正则拆分为连续数字组合，账号完全等于其中某个数字组即判定为该账号文件，未命中再按文件内容（前 20 行）匹配；命中后迁移到 `resource_root/{broker}/{交易日}/`，并立即写一条 `对账单文件` 成功匹配日志（配置了 `log_path` 时）；
    - **数据清洗**：按券商加载对应清洗类，将 `resource_root/{broker}/{交易日}/` 下的对账单逐文件读取、清洗为多个内置 DataFrame，供后续映射为 API 请求体；
    - **清洗入库**：内部先执行清洗，再按「券商模板 + 对账单类型 + 板块」映射为 14 张业务表的请求数组；逐文件调用 Open API `settlementFileInsert`（顶层 `tradingday + accountId`，服务端单事务先删后插并写处理日志）。按**报文真实交易日**调用 `queryInsertSuccessAccountList` 获取已成功账号，默认跳过；需要**删除重新入库**时用 `--force`（或 `[RunParams] Force_redownload=True`）忽略成功日志全部重跑。`国君` / `国泰海通` / `国海` / `海通` 共用同一清洗模板，`broker` 列写实际券商名。
 
@@ -88,6 +88,7 @@ src/future_email_data_statement/
 - `[RunParams]`：运行时参数
   - `Place`：运行环境，`Trade`=生产 / `Test`=测试（处理日期与执行步骤由命令行参数控制）
   - `Force_redownload`：`True` 时入库忽略已成功账号，全部重新解析入库
+  - `File_extensions`：只扫描/匹配的文件扩展名（逗号分隔，不区分大小写，默认 `.txt,.xlsx,.xls`），其余格式直接跳过以节省时间
 - `[BrokerFilter]`：券商白名单（仅列表中券商视为「已注册券商」）
   - `brokers`：逗号分隔的券商名，如 `国君,国泰海通`；留空表示不限制（全部券商）
   - 生效范围：券商目录初始化（仅白名单券商建目录）、账号匹配（仅白名单券商账号参与匹配）；
@@ -197,7 +198,7 @@ pdm run python pyinstall.py
   - 每个对账单文件映射为一次入库请求：顶层 `tradingday + accountId`，其余 14 个业务数组显式提交（无数据提交空数组）；
   - 服务端在同一事务内按 `(tradingday, accountId)` 删除 14 张业务表旧数据再写入，失败整体回滚，重复提交等价覆盖（幂等）；
   - 处理日志由服务端同步维护，程序不再写日志表；
-  - 检测到文件并解析出账号/交易日后，若配置了 `log_path`，额外写一条 `log_type=对账单文件`、`log_status=Success` 的处理日志（需开发新增该接口）。
+  - 检测到文件并匹配到账号时（账号匹配阶段），若配置了 `log_path`，立即写一条 `log_type=对账单文件`、`log_status=Success` 的处理日志；无文件账号在入库结束后写 `Failed`（`未检测到对账单文件`）。
 - 断点续跑：按**报文内真实交易日**调用 `queryInsertSuccessAccountList` 获取该日已成功账号并跳过；`--force`（或 `[RunParams] Force_redownload=True`）忽略成功日志全部重跑，失败账号不在成功集合中会自然重试。
 - 结果明细：入库结束后**按报文交易日**汇总输出「未检测到对账单文件、本次未入库的账号」「检测到文件但本次跳过/失败的账号」「无法解析基本资料的文件」，账号明细含券商、类型、有效期、备注。
 - 字段映射见 `data_insert/mapping.py`（数据库列名 -> 接口 camelCase），整型列显式转整数、缺失值转 `null`。

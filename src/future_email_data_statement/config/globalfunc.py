@@ -108,6 +108,26 @@ class GlobalFunc:
             if name.strip()
         }
 
+    def get_file_extensions(self) -> set:
+        """
+        读取只参与扫描/匹配的文件扩展名（[RunParams] File_extensions）。
+
+        Returns:
+            set: 小写扩展名集合（含前导点）；未配置时默认 .txt/.xlsx/.xls。
+        """
+        raw = self.config.get(
+            "RunParams", "File_extensions", fallback=".txt,.xlsx,.xls"
+        )
+        extensions = set()
+        for part in re.split(r"[,\n，;；]", raw):
+            ext = part.strip().lower()
+            if not ext:
+                continue
+            if not ext.startswith("."):
+                ext = f".{ext}"
+            extensions.add(ext)
+        return extensions or {".txt", ".xlsx", ".xls"}
+
     def get_api_config(self) -> dict:
         """
         读取当前环境对应的入库 API 配置（[ApiParams]/[TestApiParams]）。
